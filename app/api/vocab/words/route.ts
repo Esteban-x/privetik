@@ -7,6 +7,7 @@ import { vocabGrammarSystemPrompt } from "@/lib/ai/prompts";
 import { wordKey } from "@/lib/vocabulary/duplicate";
 import { accentRu } from "@/lib/vocabulary/accent";
 import { transliterate } from "@/lib/vocabulary/transliterate";
+import { FIELD_MAX, TRANSLIT_MAX } from "@/lib/vocabulary/limits";
 
 interface AiGrammar {
   gender: "masculine" | "feminine" | "neuter";
@@ -102,8 +103,8 @@ export async function POST(req: Request) {
   // complétion, suggestion du modèle, ou saisie entière à la main, qui
   // était le seul à enregistrer un mot nu. Et jamais sur ce que les
   // banques ne savent pas trancher : voir lib/vocabulary/accent.ts.
-  const ru = accentRu(field(body, "ru", 400) ?? "") || null;
-  const fr = field(body, "fr", 400);
+  const ru = accentRu(field(body, "ru", FIELD_MAX) ?? "") || null;
+  const fr = field(body, "fr", FIELD_MAX);
   if (!listId || !ru || !fr) {
     return NextResponse.json({ error: "listId, ru et fr sont requis" }, { status: 400 });
   }
@@ -184,7 +185,13 @@ export async function POST(req: Request) {
       // manuelle qui n'est passée ni par la complétion ni par le modèle.
       // Ce qu'il fournit n'est jamais écrasé : l'apprenant peut écrire sa
       // propre prononciation.
-      transliteration: field(body, "transliteration", 100) ?? (transliterate(ru) || null),
+      //
+      // TRANSLIT_MAX, ET NON 100 : la prononciation écrite suit le russe, et
+      // le russe va jusqu'à FIELD_MAX. Coupée au centième caractère, une
+      // phrase perdait sa lecture aux trois quarts — sans que rien ne le
+      // signale, puisque le champ, lui, l'affichait entière.
+      transliteration:
+        field(body, "transliteration", TRANSLIT_MAX) ?? (transliterate(ru) || null),
       example_ru: accentRu(field(body, "exampleRu", 300) ?? "") || null,
       example_fr: field(body, "exampleFr", 300),
       gender: grammar.gender,

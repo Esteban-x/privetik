@@ -16,6 +16,7 @@ import { NOUNS } from "@/lib/grammar/nouns-data";
 import CompletionList from "@/components/vocabulary/CompletionList";
 import { completeFr, completeRu, type Completion } from "@/lib/vocabulary/autocomplete";
 import { transliterate } from "@/lib/vocabulary/transliterate";
+import { FIELD_MAX, TRANSLIT_MAX } from "@/lib/vocabulary/limits";
 import { speakFr, speakRu } from "@/lib/vocabulary/speech";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
 import DictateButton from "@/components/vocabulary/DictateButton";
@@ -539,6 +540,12 @@ export default function AddWordForm({
     [ru, filled, pickedPair]
   );
 
+  /**
+   * Un seul des deux côtés est rempli — l'ajout est donc impossible, et il
+   * faut le dire. Voir la note au-dessus du bouton.
+   */
+  const halfFilled = Boolean(ru.trim()) !== Boolean(fr.trim());
+
   /** Remplace la saisie par la correction proposée, et referme la question. */
   function acceptCorrection(fix: NearMiss) {
     setRu(fix.ru);
@@ -785,7 +792,7 @@ export default function AddWordForm({
             }}
             placeholder="spassiba"
             autoComplete="off"
-            maxLength={100}
+            maxLength={TRANSLIT_MAX}
             className="w-full rounded-xl surface px-3.5 py-2.5 font-display text-sm text-text placeholder:text-muted/50 field-focus focus:outline-none"
           />
         </label>
@@ -856,6 +863,24 @@ export default function AddWordForm({
             {notice.kind === "added" ? `✓ ${notice.text}` : notice.text}
           </p>
         )}
+        {/* POURQUOI LE BOUTON EST ÉTEINT.
+            Il l'était sans un mot. Un côté rempli, l'autre vide — le cas
+            exact d'une traduction automatique qui n'a rien rendu — et le
+            bouton ne répondait plus au clic : ni message, ni champ signalé,
+            rien qui relie les deux. Il ne restait qu'à conclure que l'ajout
+            était cassé, alors qu'il manquait la moitié d'en face.
+
+            Seulement quand UN SEUL côté est rempli : les deux vides, le
+            formulaire n'a rien à réclamer, on vient de l'ouvrir. Et pas
+            pendant qu'une suggestion est en route — elle va peut-être
+            remplir ce champ toute seule, une seconde plus tard. */}
+        {halfFilled && !suggesting && !(bare && notice) && (
+          <p className="mb-2 text-center font-display text-xs text-muted">
+            {ru.trim()
+              ? "Il manque la traduction française pour ajouter ce mot."
+              : "Il manque le mot russe pour ajouter cette paire."}
+          </p>
+        )}
         <button
           type="submit"
           disabled={submitting || !ru.trim() || !fr.trim()}
@@ -913,17 +938,6 @@ function wrongScript(side: "ru" | "fr", value: string): boolean {
     ? LATIN.test(value) && !CYRILLIC.test(value)
     : CYRILLIC.test(value) && !LATIN.test(value);
 }
-
-/**
- * Le plafond d'un champ, ici comme côté serveur (app/api/vocab/words).
- *
- * 200 SUFFISAIT POUR UN MOT, PAS POUR UNE EXPRESSION. On colle aussi des
- * tournures — « Что вы хотите вместо этого » — et parfois une phrase
- * entière trouvée dans un texte. 400 les couvre sans ouvrir la porte au
- * paragraphe : chaque caractère finit lu à voix haute par la synthèse, qui
- * se facture au caractère.
- */
-const FIELD_MAX = 400;
 
 /**
  * La taille du texte décroît avec sa longueur, comme dans un traducteur.

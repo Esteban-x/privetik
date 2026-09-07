@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAnthropic, MODEL_FAST, textFromMessage, parseJsonResponse } from "@/lib/ai/client";
 import { consumeQuota, recordTokens } from "@/lib/ai/quota";
-import { translationSuggestionPrompt } from "@/lib/ai/prompts";
+import { isPhrase, translationSuggestionPrompt } from "@/lib/ai/prompts";
 import { NOUNS, getNoun } from "@/lib/grammar/nouns-data";
 import { exactEntry } from "@/lib/vocabulary/autocomplete";
 import { transliterate } from "@/lib/vocabulary/transliterate";
+import { accentRu } from "@/lib/vocabulary/accent";
+import { FIELD_MAX, TRANSLIT_MAX } from "@/lib/vocabulary/limits";
 
 /**
  * L'autre moitié d'un mot, proposée pendant la saisie.
@@ -26,12 +28,19 @@ import { transliterate } from "@/lib/vocabulary/transliterate";
  * l'IA proposerait.
  */
 
+/**
+ * Ce que le modèle rend — tout est facultatif, parce que la consigne varie.
+ * Sur une phrase il ne renvoie que la traduction : le côté saisi, sa
+ * translittération et sa nature se déduisent ici sans lui. Chaque champ est
+ * de toute façon vérifié avec `typeof` avant d'être lu, ces types ne
+ * décrivant qu'une intention.
+ */
 interface AiSuggestion {
-  ru: string;
-  fr: string;
-  transliteration: string;
-  partOfSpeech: string;
-  confident: boolean;
+  ru?: string;
+  fr?: string;
+  transliteration?: string;
+  partOfSpeech?: string;
+  confident?: boolean;
 }
 
 const GENDER_LABEL: Record<string, string> = {
@@ -60,8 +69,12 @@ function normalizeFr(word: string): string {
  * Sans ce plafond, Vercel coupe à dix secondes — une 504 sans corps, sans
  * trace, et qui ne se reproduit jamais en local. Voir la note détaillée dans
  * app/api/ai/reading/route.ts.
+ *
+ * 30 ET NON 15 depuis que le champ traduit des phrases : quinze secondes
+ * suffisaient à un mot, et une réponse coupée en route est ici indiscernable
+ * d'une absence de traduction.
  */
-export const maxDuration = 15;
+export const maxDuration = 30;
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -72,7 +85,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const from = body.from === "fr" ? "fr" : body.from === "ru" ? "ru" : null;
-  const raw = typeof body.word === "string" ? body.word.trim().slice(0, 100) : "";
+  // LE MÊME PLAFOND QUE LE CHAMP, et c'est tout l'objet de le tenir en un
+  // seul endroit : à 100 caractères, une phrase collée dans le formulaire
+  // arrivait ici amputée des deux tiers — traduite jusqu'au centième
+  // caractère, coupée en plein mot, et donc inutilisable.
+  const raw = typeof body.word === "string" ? body.word.trim().slice(0, FIELD_MAX) : "";
   if (!from || !raw) return NextResponse.json({ error: "Mot et sens requis" }, { status: 400 });
 
   // Rien à proposer tant qu'il n'y a pas au moins deux lettres du bon
@@ -81,8 +98,14 @@ export async function POST(req: Request) {
   const enough = from === "ru" ? /[Ѐ-ӿ]{2}/.test(raw) : /[A-Za-zÀ-ÿ]{2}/.test(raw);
   if (!enough) return NextResponse.json({ suggestion: null });
 
-  const known =
-    from === "ru"
+  // Les deux banques répondent à un MOT : leurs clés sont des entrées de
+  // dictionnaire, et confronter un paragraphe à 451 noms ne peut rien
+  // donner. On les saute plutôt que d'y frotter trois cents caractères.
+  const phrase = isPhrase(raw);
+
+  const known = phrase
+    ? null
+    : from === "ru"
       ? (() => {
           const key = normalizeRu(raw);
           return (
@@ -131,7 +154,7 @@ export async function POST(req: Request) {
   //
   // Correspondance EXACTE seulement : proposer un approchant à la place
   // d'une traduction demandée reproduirait le défaut qu'on corrige.
-  const indexed = exactEntry(raw, from);
+  const indexed = phrase ? null : exactEntry(raw, from);
   if (indexed) {
     return NextResponse.json({
       suggestion: {
@@ -168,25 +191,47 @@ export async function POST(req: Request) {
     });
   }
 
+  // ─── LE PLAFOND DE SORTIE SUIT LA LONGUEUR DE L'ENTRÉE ─────────
+  //
+  // 200 jetons, c'est la juste mesure pour un mot et un mur pour une phrase.
+  // Et un mur silencieux : la réponse coupée au plafond est un JSON tronqué,
+  // donc illisible, donc `null` — le champ d'en face restait vide sans que
+  // rien ne distingue « je n'ai pas trouvé » de « ma réponse ne tenait pas ».
+  // C'est ce qui arrivait à tout texte un peu long.
+  //
+  // La consigne « phrase » ne fait plus recopier le côté déjà saisi (voir
+  // phraseTranslationPrompt) : il ne reste qu'une traduction à produire, et
+  // trois jetons par caractère tapé lui laissent une marge confortable, y
+  // compris en cyrillique qui se découpe menu.
+  const maxTokens = phrase ? Math.min(1500, 300 + raw.length * 3) : 200;
+
   try {
     const msg = await getAnthropic().messages.create({
       model: MODEL_FAST,
-      max_tokens: 200,
+      max_tokens: maxTokens,
       system: translationSuggestionPrompt(raw, from),
       messages: [{ role: "user", content: "Propose une traduction." }],
     });
     await recordTokens(supabase, "suggest", msg.usage);
     const ai = parseJsonResponse<AiSuggestion>(textFromMessage(msg));
 
-    const aiRu = typeof ai.ru === "string" ? ai.ru.trim().slice(0, 100) : "";
-    const aiFr = typeof ai.fr === "string" ? ai.fr.trim().slice(0, 200) : "";
+    const aiRu = typeof ai.ru === "string" ? ai.ru.trim().slice(0, FIELD_MAX) : "";
+    const aiFr = typeof ai.fr === "string" ? ai.fr.trim().slice(0, FIELD_MAX) : "";
 
     // Le côté saisi par l'apprenant fait foi. Côté russe on accepte la
     // version accentuée du modèle, mais seulement si c'est bien le même mot :
     // un modèle qui « corrige » une faute de frappe changerait le mot qu'on
     // croit ajouter.
-    const ru =
-      from === "ru" ? (normalizeRu(aiRu) === normalizeRu(raw) ? aiRu : raw) : aiRu;
+    //
+    // SUR UNE PHRASE, LE MODÈLE NE RENVOIE QUE L'AUTRE CÔTÉ, et l'accent
+    // tonique vient alors de l'index (lib/vocabulary/accent), qui s'abstient
+    // là où il hésite plutôt que de deviner. C'est aussi ce qui donne sa
+    // réduction vocalique à la translittération calculée plus bas : sans
+    // accent, « хорошо » ne peut pas donner « kharacho ».
+    let ru: string;
+    if (phrase) ru = accentRu(from === "ru" ? raw : aiRu);
+    else if (from === "ru") ru = normalizeRu(aiRu) === normalizeRu(raw) ? aiRu : raw;
+    else ru = aiRu;
     const fr = from === "fr" ? raw : aiFr;
     if (!ru || !fr) return NextResponse.json({ suggestion: null });
 
@@ -200,7 +245,7 @@ export async function POST(req: Request) {
         // pas de prononciation du tout.
         transliteration:
           (typeof ai.transliteration === "string" && ai.transliteration.trim()
-            ? ai.transliteration.trim().slice(0, 100)
+            ? ai.transliteration.trim().slice(0, TRANSLIT_MAX)
             : transliterate(ru)) || null,
         partOfSpeech:
           typeof ai.partOfSpeech === "string" ? ai.partOfSpeech.trim().slice(0, 40) : null,

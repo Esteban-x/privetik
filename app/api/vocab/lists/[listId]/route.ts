@@ -38,7 +38,17 @@ export async function GET(
       "id, ru, transliteration, fr, example_ru, example_fr, gender, animacy, stem_type, indeclinable, french_gender, focus, created_at"
     )
     .eq("list_id", listId)
-    .order("created_at", { ascending: true });
+    // LE DERNIER AJOUTÉ EN PREMIER. Le mot qu'on vient d'ajouter est celui
+    // qu'on veut relire, et sous cinquante autres il fallait le chercher.
+    // Le formulaire le posait déjà en tête (VocabularyWorkspace), mais
+    // seulement dans l'état local : au rechargement suivant, l'ordre
+    // chronologique le renvoyait tout en bas — le mot changeait de place
+    // sans que rien ne l'ait déplacé.
+    //
+    // La file de révision, elle, ne s'en trouve pas réordonnée : elle trie
+    // par degré de maîtrise (reviewQueue), et cet ordre-ci ne départage que
+    // les ex æquo.
+    .order("created_at", { ascending: false });
   if (wordsError) {
     // Erreur DB inattendue (ex. colonne manquante si les migrations n'ont
     // pas été appliquées, `npm run db:push`) — tracée ici, sinon invisible

@@ -113,7 +113,28 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour : {"acceptable"
 // Une seule traduction, courte : une liste de synonymes séparés par des
 // virgules rendrait les modes « Frappe » et « QCM » inutilisables, la
 // réponse attendue devant rester un mot qu'on peut taper.
+/**
+ * Un mot, ou une phrase entière ?
+ *
+ * LE CHAMP N'A JAMAIS ACCEPTÉ QUE DES MOTS, LES GENS Y METTENT DES PHRASES.
+ * C'est légitime — on note une tournure entendue, une réplique, un bout de
+ * texte qu'on veut pouvoir se redire — et le champ le permet déjà (400
+ * caractères, voir lib/vocabulary/limits). Ce qui ne le permettait pas,
+ * c'est la consigne envoyée au modèle : elle lui demandait « la forme du
+ * dictionnaire » et « la traduction la plus courte possible, un mot, deux si
+ * la langue l'exige ». Appliquée à un paragraphe, elle ne peut produire
+ * qu'une glose — le modèle résume, ou renonce.
+ *
+ * Trois mots suffisent à basculer : « Что вы хотите » n'est plus une entrée
+ * de dictionnaire, « спасибо большое » l'est encore.
+ */
+export function isPhrase(text: string): boolean {
+  return text.trim().split(/\s+/).length >= 3;
+}
+
 export function translationSuggestionPrompt(word: string, from: "ru" | "fr") {
+  if (isPhrase(word)) return phraseTranslationPrompt(word, from);
+
   const asked =
     from === "ru"
       ? `Mot RUSSE saisi : "${word}". Donne sa traduction française.`
@@ -147,6 +168,64 @@ Consignes :
 - "confident" : false si la saisie n'est pas un mot reconnaissable, si elle
   est ambiguë, ou si tu n'es pas sûr. Dans ce cas donne quand même ta
   meilleure hypothèse : c'est l'apprenant qui tranche.`;
+}
+
+/**
+ * La même demande, pour un texte plutôt qu'un mot.
+ *
+ * DEUX DIFFÉRENCES, ET ELLES COMPTENT TOUTES LES DEUX.
+ *
+ * 1. ON NE DEMANDE PAS DE RECOPIER LE RUSSE quand c'est lui qui a été
+ *    saisi : le serveur l'a déjà, et le lui faire répéter doublait la
+ *    réponse — trois cents caractères de cyrillique à réémettre avant
+ *    d'arriver à la traduction, pour un texte identique à l'entrée. C'est
+ *    exactement ce qui faisait dépasser le plafond de sortie et rendait la
+ *    réponse illisible : le JSON était coupé au milieu, la lecture échouait,
+ *    et le champ français restait vide sans qu'aucune erreur ne le dise.
+ *    L'accent tonique, lui, se pose ensuite par index (lib/vocabulary/accent),
+ *    sans modèle et sans risque de réécriture.
+ *
+ * 2. LA TRADUCTION EST ENTIÈRE. Pour un mot on veut le plus court possible,
+ *    parce que la réponse doit se taper en mode « Frappe ». Une phrase ne se
+ *    tape pas : elle se relit. La tronquer ou la résumer, ici, c'est perdre
+ *    ce qu'on était venu noter.
+ */
+function phraseTranslationPrompt(text: string, from: "ru" | "fr") {
+  return from === "ru"
+    ? `Tu es un traducteur russe-français pour un apprenant francophone.
+
+Texte RUSSE saisi :
+"""
+${text}
+"""
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour :
+{"fr":"...","confident":true|false}
+
+Consignes :
+- "fr" : la traduction française du texte ENTIER, du début à la fin. Naturelle,
+  fidèle, dans le même registre. Ce n'est ni un résumé, ni une explication, ni
+  une paraphrase : chaque proposition du texte doit s'y retrouver.
+- Ne recopie pas le russe, ne le commente pas, n'ajoute aucune note.
+- "confident" : false si le texte est incomplet, ambigu ou illisible. Donne
+  quand même ta meilleure traduction — c'est l'apprenant qui tranche.`
+    : `Tu es un traducteur français-russe pour un apprenant francophone.
+
+Texte FRANÇAIS saisi :
+"""
+${text}
+"""
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour :
+{"ru":"...","confident":true|false}
+
+Consignes :
+- "ru" : la traduction russe du texte ENTIER, en cyrillique, du début à la fin.
+  Naturelle, fidèle, dans le même registre — ni résumé, ni paraphrase.
+- N'écris pas l'accent tonique : il est posé ensuite, par index.
+- Ne recopie pas le français, ne le commente pas, n'ajoute aucune note.
+- "confident" : false si le texte est incomplet, ambigu ou illisible. Donne
+  quand même ta meilleure traduction — c'est l'apprenant qui tranche.`;
 }
 
 // ─── Classification grammaticale d'un mot de vocabulaire perso ──
