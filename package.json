@@ -14,13 +14,14 @@
     "curate:adjectives": "node scripts/curate-adjectives.mjs",
     "curate:contexts": "node scripts/curate-contexts.mjs",
     "check:leveltest": "node scripts/check-leveltest.mjs",
-    "check": "npm run check:grammar && npm run check:leveltest && npm run check:progression && npm run check:motion && npm run check:aspect && npm run check:participles && npm run check:adjectives && npm run check:vocab && npm run check:courses && npm run check:guides && npm run check:seo && npm run check:exercises && npm run check:lexicon && npm run check:variety && npm run check:json",
+    "check": "npm run check:grammar && npm run check:leveltest && npm run check:progression && npm run check:motion && npm run check:aspect && npm run check:participles && npm run check:adjectives && npm run check:groups && npm run check:vocab && npm run check:courses && npm run check:guides && npm run check:seo && npm run check:exercises && npm run check:lexicon && npm run check:variety && npm run check:json",
     "check:progression": "node scripts/check-progression.mjs",
     "check:motion": "node scripts/check-motion.mjs",
     "check:aspect": "node scripts/check-aspect.mjs",
     "check:participles": "node scripts/check-participles.mjs",
     "check:adjectives": "node scripts/check-adjectives.mjs",
     "check:vocab": "node scripts/check-vocab.mjs",
+    "check:groups": "node scripts/check-groups.mjs",
     "check:courses": "node scripts/check-courses.mjs",
     "check:guides": "node scripts/check-guides.mjs",
     "check:seo": "node scripts/check-seo.mjs",
@@ -41,6 +42,7 @@
     "build:lexicon": "node scripts/build-lexicon.mjs",
     "build:lexicon:ai": "node scripts/build-lexicon-ai.mjs",
     "build:stress": "node scripts/build-stress.mjs",
+    "build:noun-adjectives": "node scripts/build-noun-adjectives.mjs",
     "build:brand": "node scripts/build-brand.mjs"
   },
   "dependencies": {

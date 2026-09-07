@@ -96,25 +96,63 @@ export interface DeclensionResult {
   variant?: string;
 }
 
+/**
+ * L'adjectif en français : les quatre formes, et de quel côté du nom il se
+ * place.
+ *
+ * ÉCRIT, PAS DÉRIVÉ. « beau / belle / beaux / belles » ne se déduit pas de
+ * « beau » par règle, et la place non plus — « une nouvelle route » mais
+ * « une route bleue ». Dix-huit adjectifs, quatre formes chacun : les
+ * écrire coûte moins qu'un générateur qui aurait tort une fois sur cinq.
+ */
+export interface FrenchAdjective {
+  /** Masculin singulier — « nouveau ». */
+  m: string;
+  /** Féminin singulier — « nouvelle ». */
+  f: string;
+  /** Masculin pluriel — « nouveaux », parfois identique au singulier (« vieux »). */
+  mp: string;
+  /** Féminin pluriel — « nouvelles ». */
+  fp: string;
+  /** Devant le nom (« une nouvelle route ») plutôt que derrière (« une route bleue »). */
+  before: boolean;
+  /**
+   * Masculin devant une voyelle — « un bel hôtel », « un nouvel an ».
+   * Trois adjectifs français ont cette forme ; les autres n'en ont pas
+   * besoin et laissent ce champ vide.
+   */
+  mVowel?: string;
+}
+
 export interface Adjective {
   id: string;
   lemmaM: string; // masculin nominatif singulier, forme du dictionnaire (ex. "красивый")
   translation: string;
   stemType: StemType; // "mixed" = radical en г,к,х,ж,ч,ш,щ (règle -ий/-ие)
   stressedEnding?: boolean; // accent sur la désinence -> -ой au masc./neutre au lieu de -ый/-ий
+  /**
+   * Les formes françaises, pour écrire la traduction d'une phrase où le
+   * groupe entier est demandé — voir `fr` ci-dessous et frenchNounPhrase.
+   */
+  fr: FrenchAdjective;
 }
 
 /**
- * `appliesTo`, `onlyNouns` et `fr` ont été retirés d'ici.
+ * `appliesTo` ET `onlyNouns` RESTENT RETIRÉS, `fr` REVIENT.
  *
  * Les deux premiers disaient ce qu'un adjectif peut qualifier, pour
  * empêcher une voisine « savoureuse » quand l'exercice d'accord tirait le
  * nom au hasard. L'approximation ne tenait pas : elle passait par
  * l'animacité GRAMMATICALE, qui n'est pas une propriété sémantique, et
- * laissait passer une phrase sur trois. Le troisième écrivait la
- * traduction française de ces phrases assemblées.
+ * laissait passer une phrase sur trois. Ils ne reviendront pas : le couple
+ * adjectif + nom n'est plus deviné nulle part, il est ÉCRIT contexte par
+ * contexte dans lib/adjectives/exercises.ts, et c'est de là que le module
+ * Cas tire désormais les siens (voir noun-adjectives.generated.ts).
  *
- * Les trois disparaissent avec leur cause : le couple adjectif + nom n'est
- * plus tiré, il est écrit contexte par contexte dans
- * lib/adjectives/exercises.ts, traduction française comprise.
+ * `fr`, lui, revient — parce que sa cause revient aussi. Il écrivait la
+ * traduction française des phrases assemblées ; le module Cas en assemble
+ * de nouveau, mais sur des couples curés cette fois, et il lui faut bien
+ * dire « près de la nouvelle route » quand la réponse attendue est
+ * « но́вой доро́ги ». Ce qui avait disparu, c'est le tirage au hasard, pas
+ * le besoin de traduire.
  */

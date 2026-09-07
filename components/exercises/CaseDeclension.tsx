@@ -285,6 +285,10 @@ export default function CaseDeclension({
     const outcome = await postAttempt({
       targetCase: exercise.targetCase,
       nounId: exercise.noun.id,
+      // L'ADJECTIF EST ENVOYÉ PAR SON IDENTIFIANT, comme le nom, et le
+      // serveur recompose le groupe lui-même. Envoyer la forme attendue
+      // reviendrait à laisser le client dicter la bonne réponse.
+      adjectiveId: exercise.adjective?.id,
       triggerId: exercise.trigger?.id,
       plural: exercise.plural,
       userAnswer,
@@ -402,7 +406,13 @@ export default function CaseDeclension({
   // transformation, et voir « речь -> речь » est précisément ce que le
   // syncrétisme de l'accusatif a à enseigner. Le masquer rendrait l'indice
   // absent là où il manque le plus.
-  const lemmaHint = !exercise || !isSentenceLike ? null : exercise.noun.forms.singular[0];
+  // Sur un groupe, l'indice porte les DEUX mots sous leur forme de
+  // dictionnaire — « но́вая доро́га ». Ne montrer que le nom laisserait
+  // l'adjectif à deviner, alors que l'exercice porte sur sa désinence, pas
+  // sur le choix du mot : la traduction française le nomme déjà.
+  const lemmaHint = !exercise || !isSentenceLike
+    ? null
+    : (exercise.promptRu ?? exercise.noun.forms.singular[0]);
 
   if (!signedIn) return <VisitorCard caseInfo={caseInfo} />;
 
@@ -486,16 +496,19 @@ export default function CaseDeclension({
 
             {exercise.kind === "isolated" && (
               <div className="mb-6">
+                {/* « ce mot » devient « ce groupe » quand il y en a deux :
+                    la consigne dit ce qu'on attend, et sur un groupe on
+                    attend DEUX désinences, pas une. */}
                 <p className="font-display text-sm text-muted">
                   {exercise.targetCase === "nominative"
-                    ? "Mets ce mot au pluriel :"
-                    : "Décline ce mot :"}
+                    ? `Mets ${exercise.adjective ? "ce groupe" : "ce mot"} au pluriel :`
+                    : `Décline ${exercise.adjective ? "ce groupe" : "ce mot"} :`}
                 </p>
                 <p className="font-display text-3xl font-bold">
-                  {exercise.noun.forms.singular[0]}
+                  {exercise.promptRu ?? exercise.noun.forms.singular[0]}
                   {" "}
                   <span className="font-display text-lg font-normal text-muted">
-                    ({exercise.noun.translation})
+                    ({exercise.promptFr ?? exercise.noun.translation})
                   </span>
                 </p>
               </div>

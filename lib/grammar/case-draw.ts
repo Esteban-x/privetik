@@ -24,6 +24,30 @@ import { pickWeightedTrigger, type TriggerProgressMap } from "./exercise-selecto
 
 export type CaseTab = "isolated" | "sentence" | "mcq" | "numeral";
 
+/**
+ * Part des exercices qui portent sur le GROUPE NOMINAL — « но́вой доро́ги »
+ * — plutôt que sur le nom nu.
+ *
+ * POURQUOI MÉLANGÉ, ET PAS UN ONGLET DE PLUS. Un adjectif devant un nom
+ * n'est pas un autre exercice : c'est la phrase russe ordinaire. Le sortir
+ * dans son propre onglet, c'est réapprendre à décliner « доро́га » d'un
+ * côté et « но́вая доро́га » de l'autre, comme si la seconde était une
+ * matière avancée — alors qu'on ne rencontre presque jamais la première en
+ * lisant.
+ *
+ * UN TIERS, ET PAS DAVANTAGE. Le groupe demande deux désinences au lieu
+ * d'une : à moitié-moitié, le nom seul — qui reste la brique — devient
+ * l'exception. Un tiers suffit à ce que le groupe ne surprenne plus, et
+ * laisse la majorité des passages sur ce que la page annonce.
+ *
+ * JAMAIS SUR L'ONGLET DES CHIFFRES. « два но́вых до́ма » met l'adjectif au
+ * génitif PLURIEL pendant que le nom reste au génitif singulier : une règle
+ * à part entière, que cet onglet n'enseigne pas et que le moteur ne
+ * calcule pas. L'y mêler produirait des réponses fausses présentées comme
+ * justes.
+ */
+const GROUP_SHARE = 1 / 3;
+
 /** La mémoire courte est tenue par onglet : un mot vu « isolé » n'est pas une phrase vue. */
 export function caseRecentKey(caseId: CaseId, tab: CaseTab): string {
   return `cases:${caseId}:${tab}`;
@@ -45,8 +69,13 @@ export function caseRecentKey(caseId: CaseId, tab: CaseTab): string {
  */
 export function caseExerciseIds(exercise: CaseExercise): string[] {
   const context = exercise.sentenceTemplate ?? exercise.countForm ?? "seul";
+  // L'ADJECTIF FAIT PARTIE DE L'IDENTITÉ DE L'EXERCICE, pas de celle du
+  // nom. « но́вая доро́га » et « ста́рая доро́га » sont deux exercices — la
+  // désinence à trouver n'est pas la même — mais c'est bien le même nom
+  // travaillé, et l'espacement du nom doit continuer de compter les deux.
+  const group = exercise.adjective ? `${exercise.adjective.id}+${exercise.noun.id}` : exercise.noun.id;
   const ids = [
-    `${context}:${exercise.noun.id}:${exercise.plural ? "pl" : "sg"}`,
+    `${context}:${group}:${exercise.plural ? "pl" : "sg"}`,
     `noun:${exercise.noun.id}`,
   ];
   if (exercise.sentenceTemplate) ids.push(`phrase:${exercise.sentenceTemplate}`);
@@ -79,8 +108,11 @@ export function drawCaseCandidate({
   // « Mélange » tire à chaque exercice, pas une fois pour la session : le
   // contraste ne s'apprend qu'en alternant.
   const wantPlural = numberMode === "plural" || (numberMode === "mixed" && Math.random() < 0.5);
+  // Tiré à chaque exercice, comme le nombre : c'est l'alternance qui
+  // apprend, pas une session entière d'un seul format.
+  const withAdjective = tab !== "numeral" && Math.random() < GROUP_SHARE;
 
-  if (tab === "isolated") return generateIsolatedExercise(caseId, wantPlural, pool);
+  if (tab === "isolated") return generateIsolatedExercise(caseId, wantPlural, pool, withAdjective);
   if (tab === "numeral") return generateNumeralExercise(pool);
 
   // Le nombre demandé restreint le tirage aux gabarits qui l'acceptent. En
@@ -96,8 +128,8 @@ export function drawCaseCandidate({
   );
   const plural = resolveNumber(trigger, wantPlural);
 
-  if (tab === "mcq") return generateMcqExercise(caseId, trigger, pool, plural);
-  return generateSentenceExercise(caseId, trigger, pool, plural);
+  if (tab === "mcq") return generateMcqExercise(caseId, trigger, pool, plural, withAdjective);
+  return generateSentenceExercise(caseId, trigger, pool, plural, withAdjective);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { FrenchGender } from "./types";
+import { FrenchGender, type Adjective } from "./types";
 
 // Mode d'article à appliquer devant la traduction française insérée dans
 // un gabarit de phrase (lib/grammar/triggers.ts) :
@@ -67,22 +67,58 @@ function pluralizeFirstWord(translation: string): string {
 }
 
 /**
+ * L'adjectif accordé au nom FRANÇAIS, et placé du bon côté.
+ *
+ * LE GENRE VIENT DU FRANÇAIS, PAS DU RUSSE — c'est le piège de cette
+ * fonction. « кни́га » est féminin en russe, sa traduction « livre » est
+ * masculine : le groupe s'écrit « ce vieux livre », pas « cette vieille ».
+ * D'où `FrenchGender`, porté par le nom, et jamais le genre russe qui sert
+ * à décliner.
+ *
+ * « bel », « nouvel », « vieil » : la forme masculine devant voyelle, que
+ * seuls trois adjectifs français possèdent. Elle ne s'applique que devant
+ * le nom — « un bel hôtel », mais « un hôtel beau » ne se dit pas de toute
+ * façon.
+ */
+function agree(adjective: Adjective, gender: FrenchGender, plural: boolean, noun: string): string {
+  const fr = adjective.fr;
+  if (plural) return gender === "f" ? fr.fp : fr.mp;
+  if (gender === "f") return fr.f;
+  // Le h aspiré refuse l'élision comme il refuse « cet » : « ce vieux héros ».
+  const aspirated = ASPIRATED_H.has(noun.toLowerCase().split(/[\s(]/)[0]);
+  return fr.mVowel && !aspirated && VOWEL_SOUND.test(noun) ? fr.mVowel : fr.m;
+}
+
+/**
  * Insère l'article français adapté devant une traduction, avec élision
  * (ce -> cet) et accord pluriel (ces/des + "s").
  *
- * Un paramètre `adjective` insérait ici l'adjectif accordé et placé du bon
- * côté, pour écrire la traduction des phrases d'accord assemblées. Ces
- * phrases ne sont plus assemblées : le module d'accord écrit sa traduction
- * à la main (lib/adjectives/exercises.ts), et ce module retrouve son seul
- * travail — un article devant un nom.
+ * `adjective` REVIENT, ET AVEC LUI SA RAISON D'ÊTRE. Ce paramètre existait
+ * pour écrire la traduction des phrases d'accord assemblées ; il est parti
+ * quand ces phrases ont cessé d'être assemblées. Le module Cas en assemble
+ * de nouveau — mais sur des couples adjectif + nom curés, jamais tirés au
+ * hasard, ce qui était le vrai défaut. Il faut donc de nouveau savoir
+ * écrire « près de cette nouvelle route ».
+ *
+ * L'ARTICLE REGARDE LE PREMIER MOT DU GROUPE, pas le nom. Un adjectif
+ * antéposé s'intercale entre les deux : « ce nouvel hôtel » et non « cet
+ * nouvel hôtel ». Composer le groupe AVANT de choisir l'article donne ce
+ * comportement sans le coder — c'est `core` qui est testé, et `core`
+ * commence par l'adjectif quand il précède.
  */
 export function frenchNounPhrase(
   translation: string,
   gender: FrenchGender,
   article: ArticleMode,
-  plural: boolean
+  plural: boolean,
+  adjective?: Adjective
 ): string {
-  const core = plural ? pluralizeFirstWord(translation) : translation;
+  const noun = plural ? pluralizeFirstWord(translation) : translation;
+  const core = adjective
+    ? adjective.fr.before
+      ? `${agree(adjective, gender, plural, noun)} ${noun}`
+      : `${noun} ${agree(adjective, gender, plural, noun)}`
+    : noun;
 
   if (article === "none") return core;
   if (plural) return `${article === "indefinite" ? "des" : "ces"} ${core}`;

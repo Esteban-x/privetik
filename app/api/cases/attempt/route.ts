@@ -4,6 +4,9 @@ import { getCase } from "@/lib/grammar/cases";
 import { CaseId } from "@/lib/grammar/types";
 import { bumpStreakAndXp } from "@/lib/progress/streak";
 import { declineNoun } from "@/lib/grammar/decline";
+import { declineAdjective } from "@/lib/grammar/decline-adjective";
+import { getAdjective } from "@/lib/grammar/adjectives-data";
+import { NOUN_ADJECTIVES } from "@/lib/grammar/noun-adjectives.generated";
 import {
   acceptableForms,
   normalizeAnswer,
@@ -114,6 +117,7 @@ export async function POST(req: Request) {
   // justes comme fausses.
   const targetCase = body.targetCase as CaseId;
   const nounId = typeof body.nounId === "string" ? body.nounId : "";
+  const adjectiveId = typeof body.adjectiveId === "string" ? body.adjectiveId : "";
   const userAnswer = typeof body.userAnswer === "string" ? body.userAnswer.slice(0, 200) : "";
   const plural = body.plural === true;
   const revealed = body.revealed === true;
@@ -154,11 +158,28 @@ export async function POST(req: Request) {
   const triggerId = trigger?.caseId === targetCase ? trigger.id : null;
 
   // C'est ici, et nulle part ailleurs, que la forme attendue est recalculée :
-  // le client n'envoie que l'identifiant du nom et le cas. L'accord de
-  // l'adjectif a son propre module (app/api/adjectives/attempt) depuis qu'il
-  // a quitté cet onglet.
+  // le client n'envoie que des IDENTIFIANTS — le nom, l'adjectif éventuel —
+  // et le serveur refait le calcul avec le même moteur déterministe.
+  //
+  // ─── L'ADJECTIF N'EST ACCEPTÉ QUE S'IL VA AVEC CE NOM ───────────
+  //
+  // La paire est vérifiée contre l'index curé, exactement comme le
+  // déclencheur l'est contre son cas quelques lignes plus haut. Un client
+  // qui annoncerait « вку́сный » sur « зако́н » ne ferait pas entrer un
+  // groupe faux dans la progression : l'adjectif est simplement ignoré, et
+  // la réponse attendue redevient le nom seul.
+  //
+  // Ce n'est pas une défense contre la triche — le client ne gagne rien à
+  // s'ajouter un mot à décliner. C'est la garantie que ce qui est
+  // enregistré correspond à un exercice que l'app sait produire.
   const declension = declineNoun(noun, targetCase, plural);
-  const expectedForm = declension.form;
+  const adjective =
+    adjectiveId && (NOUN_ADJECTIVES[noun.id] ?? []).includes(adjectiveId)
+      ? getAdjective(adjectiveId)
+      : undefined;
+  const expectedForm = adjective
+    ? `${declineAdjective(adjective, targetCase, noun.gender, plural, noun.animacy).form} ${declension.form}`
+    : declension.form;
 
   // "Je ne sais pas" compte comme un échec quoi qu'il y ait dans le champ de
   // saisie : sans ce drapeau, une bonne réponse déjà tapée puis révélée
@@ -169,10 +190,16 @@ export async function POST(req: Request) {
     // Les DEUX formes du dictionnaire, quand il en donne deux : « дочеря́ми »
     // vaut « дочерьми́ ». Le même énumérateur sert au client, sinon l'écran
     // et la base pourraient rendre deux verdicts différents.
-    const acceptable = acceptableForms({
-      correctForm: expectedForm,
-      variantForm: declension.variant,
-    });
+    // La variante du dictionnaire porte le groupe entier quand il y en a
+    // un : « дочерьми́ » vaut « дочеря́ми », donc « ста́рыми дочерьми́ » vaut
+    // « ста́рыми дочеря́ми ». La comparer nue rejetterait une réponse que le
+    // nom seul aurait acceptée.
+    const variantForm = declension.variant
+      ? adjective
+        ? `${declineAdjective(adjective, targetCase, noun.gender, plural, noun.animacy).form} ${declension.variant}`
+        : declension.variant
+      : undefined;
+    const acceptable = acceptableForms({ correctForm: expectedForm, variantForm });
     const given = normalizeAnswer(userAnswer);
     correct = acceptable.some((form) => normalizeAnswer(form) === given);
     // La relecture par le modèle n'a plus ces 148 cas à rattraper : elle
@@ -180,7 +207,10 @@ export async function POST(req: Request) {
     // gratuit ne l'a pas.
     if (!correct && !multipleChoice && userAnswer.trim()) {
       const verdict = await aiSecondOpinion(supabase, {
-        lemma: noun.lemma,
+        // Le groupe entier, quand c'en est un : demander au modèle si
+        // « но́вой доро́ги » est une forme acceptable de « доро́га » lui
+        // cacherait la moitié de la question.
+        lemma: adjective ? `${adjective.lemmaM} ${noun.lemma}` : noun.lemma,
         gender: noun.gender,
         animacy: noun.animacy,
         targetCase,

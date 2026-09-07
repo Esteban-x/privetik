@@ -1,5 +1,8 @@
-import { CaseId, Noun } from "./types";
+import { Adjective, CaseId, Noun } from "./types";
 import { NOUNS } from "./nouns-data";
+import { getAdjective } from "./adjectives-data";
+import { declineAdjective } from "./decline-adjective";
+import { NOUN_ADJECTIVES } from "./noun-adjectives.generated";
 import { RUSSIAN_NAMES } from "./names-data";
 import { declineNoun } from "./decline";
 import {
@@ -59,9 +62,95 @@ const BY_FREQUENCY = [...NOUNS].sort((a, b) => a.rank - b.rank);
 
 export type ExerciseKind = "isolated" | "sentence-fixed" | "trigger-mcq" | "numeral";
 
+/**
+ * Les adjectifs qui peuvent qualifier ce nom — la liste curée, ou rien.
+ *
+ * RIEN N'EST DÉDUIT ICI. Un nom absent de l'index n'aura jamais d'adjectif
+ * dans un exercice de cas, et c'est le comportement voulu : mieux vaut un
+ * nom nu qu'un « droit cher ». C'est très exactement l'approximation qui
+ * avait fait sortir l'accord de ce module (voir noun-adjectives.generated.ts).
+ */
+export function adjectivesFor(noun: Noun): Adjective[] {
+  const ids = NOUN_ADJECTIVES[noun.id];
+  if (!ids) return [];
+  return ids.map(getAdjective).filter((a): a is Adjective => a !== undefined);
+}
+
+/** Les noms d'un vivier qui portent au moins un adjectif curé. */
+function withAdjectives(pool: Noun[]): Noun[] {
+  return pool.filter((n) => (NOUN_ADJECTIVES[n.id]?.length ?? 0) > 0);
+}
+
+/**
+ * Le groupe nominal : l'adjectif accordé, puis le nom décliné.
+ *
+ * L'ACCORD SE FAIT SUR LE GENRE RUSSE ET L'ANIMACITÉ DU NOM, les deux
+ * propriétés qui décident de la désinence — « но́вого студе́нта » (animé,
+ * accusatif = génitif) contre « но́вый стол » (inanimé, accusatif =
+ * nominatif). Les rater ne se voit qu'à l'accusatif masculin, ce qui est
+ * précisément la case que cet exercice a le plus à enseigner.
+ *
+ * LA VARIANTE DU NOM SE PROPAGE AU GROUPE. Quand le dictionnaire donne deux
+ * formes — « дочерьми́ » et « дочеря́ми » — les deux groupes correspondants
+ * sont acceptés. Sans ça, l'apprenant qui tape la seconde verrait « faux »
+ * sur une réponse que le nom seul aurait acceptée.
+ */
+function asGroup(
+  adjective: Adjective,
+  noun: Noun,
+  targetCase: CaseId,
+  plural: boolean,
+  declined: { form: string; accented: string; variant?: string; ruleApplied: string },
+): {
+  correctForm: string;
+  accentedForm: string;
+  variantForm?: string;
+  ruleApplied: string;
+  promptRu: string;
+  promptFr: string;
+} {
+  const adj = declineAdjective(adjective, targetCase, noun.gender, plural, noun.animacy);
+  return {
+    correctForm: `${adj.form} ${declined.form}`,
+    accentedForm: `${adj.accented} ${declined.accented}`,
+    variantForm: declined.variant ? `${adj.form} ${declined.variant}` : undefined,
+    ruleApplied: `${adj.ruleApplied} ; ${declined.ruleApplied}`,
+    // ─── L'ÉNONCÉ MONTRE LE GROUPE DÉJÀ ACCORDÉ ────────────────────
+    //
+    // « ста́рое письмо́ », pas « ста́рый письмо́ ». La forme du dictionnaire
+    // d'un adjectif est son masculin, et l'afficher telle quelle devant un
+    // neutre ou un féminin donnerait à copier une faute — dans l'énoncé
+    // même de l'exercice qui apprend à ne pas la faire.
+    //
+    // Toujours au SINGULIER, comme la forme de dictionnaire du nom que
+    // l'énoncé montrait déjà pour un exercice au pluriel : c'est un point
+    // de départ, pas la réponse.
+    promptRu: `${declineAdjective(adjective, "nominative", noun.gender, false, noun.animacy).accented} ${noun.forms.singular[0]}`,
+    promptFr: frenchNounPhrase(noun.translation, noun.frenchGender, "none", false, adjective),
+  };
+}
+
 export interface CaseExercise {
   kind: ExerciseKind;
   noun: Noun;
+  /**
+   * L'adjectif qui qualifie le nom, quand l'exercice porte sur le GROUPE
+   * entier. Absent, l'exercice est celui qu'il a toujours été : un nom nu.
+   *
+   * Quand il est là, `correctForm` porte les deux mots — « но́вой доро́ги »
+   * — et c'est ce qui permet à tout le reste de la chaîne de ne rien
+   * changer : la correction compare des chaînes normalisées, et
+   * `normalizeAnswer` réduit déjà les espaces.
+   */
+  adjective?: Adjective;
+  /**
+   * Le groupe sous sa forme de dictionnaire, accordé — « но́вая доро́га » —
+   * et sa traduction sans article — « nouvelle route ». Ce que l'énoncé
+   * montre, quand il montre quelque chose ; absents sur un nom nu, où
+   * l'écran retombe sur le nom et sa traduction.
+   */
+  promptRu?: string;
+  promptFr?: string;
   // Cas réellement demandé par l'exercice. Presque toujours celui de la
   // page, SAUF pour les chiffres : "21 + стол" appelle un nominatif alors
   // que l'onglet vit sur la page du génitif (voir generateNumeralExercise).
@@ -173,7 +262,8 @@ export function poolFor(trigger: CaseTrigger, pool: Noun[]): Noun[] {
 export function generateIsolatedExercise(
   targetCase: CaseId,
   plural = false,
-  pool: Noun[] = DECLINABLE_NOUNS
+  pool: Noun[] = DECLINABLE_NOUNS,
+  withAdjective = false
 ): CaseExercise {
   // Le nominatif SINGULIER est la forme du dictionnaire : rien à décliner,
   // on ferait retaper le mot affiché. Le pluriel etait donc force ici — ce
@@ -186,17 +276,29 @@ export function generateIsolatedExercise(
   // n'apprend rien.
   const effectivePlural = targetCase === "nominative" ? true : plural;
   const usable = effectivePlural ? pluralisableNouns(pool) : pool;
-  const noun = pickRandom(usable);
+  // LE VIVIER SE RESTREINT AVANT LE TIRAGE, il ne se filtre pas après :
+  // tirer un nom puis constater qu'il n'a pas d'adjectif rendrait un nom nu
+  // une fois sur cinq alors qu'on a demandé un groupe. Et s'il ne reste
+  // rien — un vivier de niveau très réduit —, on rend le nom seul plutôt
+  // que d'échouer : un exercice moins riche vaut mieux que pas d'exercice.
+  const qualifiable = withAdjective ? withAdjectives(usable) : [];
+  const noun = pickRandom(qualifiable.length > 0 ? qualifiable : usable);
   const result = declineNoun(noun, targetCase, effectivePlural);
+  const adjective = qualifiable.length > 0 ? pickRandom(adjectivesFor(noun)) : undefined;
   return {
     kind: "isolated",
     noun,
+    adjective,
     targetCase,
     plural: effectivePlural,
-    correctForm: result.form,
-    accentedForm: result.accented,
-    variantForm: result.variant,
-    ruleApplied: result.ruleApplied,
+    ...(adjective
+      ? asGroup(adjective, noun, targetCase, effectivePlural, result)
+      : {
+          correctForm: result.form,
+          accentedForm: result.accented,
+          variantForm: result.variant,
+          ruleApplied: result.ruleApplied,
+        }),
   };
 }
 
@@ -205,14 +307,29 @@ export function generateSentenceExercise(
   targetCase: CaseId,
   trigger?: CaseTrigger,
   pool: Noun[] = DECLINABLE_NOUNS,
-  wantPlural = false
+  wantPlural = false,
+  withAdjective = false
 ): CaseExercise {
   const chosenTrigger = trigger ?? pickRandom(triggersForCase(targetCase));
   // La contrainte du gabarit l'emporte sur le souhait de l'apprenant :
   // « несколько ___ » reste au pluriel, « Меня зовут ___ » au singulier.
   const plural = resolveNumber(chosenTrigger, wantPlural);
   const candidates = poolFor(chosenTrigger, pool);
-  const noun = pickRandom(plural ? pluralisableNouns(candidates) : candidates);
+  const usable = plural ? pluralisableNouns(candidates) : candidates;
+  // ─── LES DEUX RELATIONS SONT CURÉES, ET C'EST TOUT L'ENJEU ──────
+  //
+  // Le vivier du déclencheur dit quels noms cette phrase accepte ; l'index
+  // des adjectifs dit lesquels de ces noms se laissent qualifier, et par
+  // quoi. Croiser les deux ne produit que des triplets dont CHAQUE relation
+  // a été relue à la main.
+  //
+  // C'est la différence exacte avec la version qui avait été retirée : elle
+  // croisait trois banques en n'ayant curé qu'une seule des trois relations,
+  // et approchait la manquante par l'animacité grammaticale — d'où « une
+  // règle brillante » une fois sur trois. Aucune paire n'est devinée ici.
+  const qualifiable = withAdjective ? withAdjectives(usable) : [];
+  const noun = pickRandom(qualifiable.length > 0 ? qualifiable : usable);
+  const adjective = qualifiable.length > 0 ? pickRandom(adjectivesFor(noun)) : undefined;
   const result = declineNoun(noun, targetCase, plural);
   // Un déclencheur porte plusieurs phrases depuis qu'elles sont écrites à la
   // construction (voir templatesFor). Sans ce tirage, le nombre de phrases
@@ -223,17 +340,31 @@ export function generateSentenceExercise(
   return {
     kind: "sentence-fixed",
     noun,
+    adjective,
     targetCase,
     plural,
-    correctForm: result.form,
-    accentedForm: result.accented,
-    variantForm: result.variant,
-    ruleApplied: result.ruleApplied,
+    ...(adjective
+      ? asGroup(adjective, noun, targetCase, plural, result)
+      : {
+          correctForm: result.form,
+          accentedForm: result.accented,
+          variantForm: result.variant,
+          ruleApplied: result.ruleApplied,
+        }),
     trigger: chosenTrigger,
     sentenceTemplate: template.ru,
+    // La traduction porte l'adjectif elle aussi : sans lui, l'écran
+    // demanderait « но́вой доро́ги » en montrant « près de cette route »,
+    // et rien ne dirait d'où sort le second mot.
     sentenceFr: fillFrenchBlank(
       template.fr,
-      frenchNounPhrase(noun.translation, noun.frenchGender, chosenTrigger.article, plural)
+      frenchNounPhrase(
+        noun.translation,
+        noun.frenchGender,
+        chosenTrigger.article,
+        plural,
+        adjective
+      )
     ),
   };
 }
@@ -243,10 +374,25 @@ export function generateMcqExercise(
   targetCase: CaseId,
   trigger?: CaseTrigger,
   pool: Noun[] = DECLINABLE_NOUNS,
-  wantPlural = false
+  wantPlural = false,
+  withAdjective = false
 ): CaseExercise {
-  const base = generateSentenceExercise(targetCase, trigger, pool, wantPlural);
+  const base = generateSentenceExercise(targetCase, trigger, pool, wantPlural, withAdjective);
   const otherCases = CASES.map((c) => c.id).filter((id) => id !== targetCase);
+
+  /**
+   * La forme d'un nom telle qu'elle doit apparaître sur un bouton : le nom
+   * seul, ou le GROUPE entier si l'exercice en demande un.
+   *
+   * Sans ça, les quatre boutons d'un exercice de groupe auraient offert une
+   * bonne réponse à deux mots au milieu de trois distracteurs à un seul —
+   * la réponse se serait reconnue à sa longueur, sans lire le russe.
+   */
+  const formOf = (noun: Noun, kase: CaseId): string => {
+    const declined = declineNoun(noun, kase, base.plural);
+    if (!base.adjective) return declined.form;
+    return asGroup(base.adjective, noun, kase, base.plural, declined).correctForm;
+  };
 
   // La déduplication se fait sur la forme NORMALISÉE, celle qui sert à
   // corriger. Comparer les chaînes brutes laissait passer deux boutons que
@@ -264,7 +410,21 @@ export function generateMcqExercise(
 
   for (const c of shuffle(otherCases)) {
     if (distractors.length >= 3) break;
-    offer(declineNoun(base.noun, c, base.plural).form);
+    offer(formOf(base.noun, c));
+  }
+
+  // ACCORD ROMPU : le nom au bon cas, l'adjectif à un autre — « но́вый
+  // доро́ги ». C'est la faute que l'exercice a précisément à enseigner, et
+  // elle n'existe que sur un groupe. Placée avant le repli sur d'autres
+  // noms, elle passe donc en premier quand le syncrétisme a mangé les
+  // formes du nom seul.
+  if (base.adjective && distractors.length < 3) {
+    const declined = declineNoun(base.noun, targetCase, base.plural);
+    for (const c of shuffle(otherCases)) {
+      if (distractors.length >= 3) break;
+      const wrong = declineAdjective(base.adjective, c, base.noun.gender, base.plural, base.noun.animacy);
+      offer(`${wrong.form} ${declined.form}`);
+    }
   }
 
   // Filet de sécurité quand le nom a trop de formes identiques
@@ -279,7 +439,7 @@ export function generateMcqExercise(
     for (const other of shuffle(poolFor(base.trigger!, pool))) {
       if (distractors.length >= 3) break;
       if (other.id === base.noun.id) continue;
-      offer(declineNoun(other, targetCase, base.plural).form);
+      offer(formOf(other, targetCase));
     }
   }
   // Dernier recours : la banque entière. Elle contient 451 noms, donc trois
@@ -288,7 +448,7 @@ export function generateMcqExercise(
     for (const other of shuffle(DECLINABLE_NOUNS)) {
       if (distractors.length >= 3) break;
       if (other.id === base.noun.id) continue;
-      offer(declineNoun(other, targetCase, base.plural).form);
+      offer(formOf(other, targetCase));
     }
   }
 
