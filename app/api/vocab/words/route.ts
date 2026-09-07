@@ -5,6 +5,8 @@ import { getAnthropic, MODEL_FAST, textFromMessage, parseJsonResponse } from "@/
 import { consumeQuota, recordTokens } from "@/lib/ai/quota";
 import { vocabGrammarSystemPrompt } from "@/lib/ai/prompts";
 import { wordKey } from "@/lib/vocabulary/duplicate";
+import { accentRu } from "@/lib/vocabulary/accent";
+import { transliterate } from "@/lib/vocabulary/transliterate";
 
 interface AiGrammar {
   gender: "masculine" | "feminine" | "neuter";
@@ -86,7 +88,21 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const listId = typeof body.listId === "string" ? body.listId : "";
-  const ru = field(body, "ru", 400);
+  // ─── L'ACCENT TONIQUE SE POSE ICI, PAS DANS LE FORMULAIRE ───────
+  //
+  // Le formulaire ne réécrit jamais le champ que l'apprenant a rempli
+  // lui-même, et il a raison : écraser sa saisie par la suggestion serait
+  // le contraire de « garde la tienne ». Mais l'accent n'est pas une
+  // correction — il n'ajoute aucune lettre et ne change aucun mot ;
+  // replié, le résultat est exactement ce qui a été tapé (c'est la
+  // définition même de wordKey). Le mot reste le sien, il gagne sa
+  // lecture.
+  //
+  // AU SERVEUR, donc, où tous les chemins d'ajout se rejoignent — menu de
+  // complétion, suggestion du modèle, ou saisie entière à la main, qui
+  // était le seul à enregistrer un mot nu. Et jamais sur ce que les
+  // banques ne savent pas trancher : voir lib/vocabulary/accent.ts.
+  const ru = accentRu(field(body, "ru", 400) ?? "") || null;
   const fr = field(body, "fr", 400);
   if (!listId || !ru || !fr) {
     return NextResponse.json({ error: "listId, ru et fr sont requis" }, { status: 400 });
@@ -161,8 +177,15 @@ export async function POST(req: Request) {
       user_id: user.id,
       ru,
       fr,
-      transliteration: field(body, "transliteration", 100),
-      example_ru: field(body, "exampleRu", 300),
+      // LA TRANSLITTÉRATION SE DÉDUIT DE L'ACCENT (voir transliterate.ts) :
+      // sans lui, aucune réduction vocalique n'est appliquée et « хорошо́ »
+      // ne peut pas donner « kharacho ». Elle est donc recalculée ici quand
+      // le client n'en fournit pas — le cas, précisément, de la saisie
+      // manuelle qui n'est passée ni par la complétion ni par le modèle.
+      // Ce qu'il fournit n'est jamais écrasé : l'apprenant peut écrire sa
+      // propre prononciation.
+      transliteration: field(body, "transliteration", 100) ?? (transliterate(ru) || null),
+      example_ru: accentRu(field(body, "exampleRu", 300) ?? "") || null,
       example_fr: field(body, "exampleFr", 300),
       gender: grammar.gender,
       animacy: grammar.animacy,

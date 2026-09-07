@@ -11,7 +11,8 @@ import { useReviewQueue } from "@/lib/vocabulary/useReviewQueue";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
-import WordExplanation from "@/components/vocabulary/WordExplanation";
+import PronunciationRow from "@/components/vocabulary/PronunciationRow";
+import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
 import { ReviewCardSkeleton } from "@/components/ui/Skeleton";
 
 export default function FlashcardsPage() {
@@ -166,15 +167,21 @@ function FlashcardsInner() {
         )}
       </button>
 
-      {/* Une fois la réponse vue, et seulement là : c'est le moment où une
-          nuance ou un piège s'ancre, pas avant, où elle donnerait la
-          réponse. La fiche est mise en cache côté serveur, donc gratuite
-          aux passages suivants. */}
-      {revealed && (
-        <div className="mt-4 flex justify-center">
-          <WordExplanation key={current.id} wordId={current.id} />
-        </div>
-      )}
+      {/* SOUS LA CARTE, PAS DEDANS : la carte EST un bouton — c'est elle
+          qu'on clique pour retourner — et un bouton n'en contient pas un
+          second. D'où les pastilles nommées plutôt que le pictogramme
+          adossé au mot des cartes de liste.
+
+          Face visible seulement tant qu'on n'a pas retourné : entendre le
+          verso, c'est se donner la réponse. */}
+      <PronunciationRow
+        ru={current.ru}
+        fr={current.fr}
+        only={revealed ? undefined : direction === "ru-first" ? "ru" : "fr"}
+        className="mt-5"
+      />
+
+      {revealed && <ReviewExplanation wordId={current.id} />}
 
       {revealed && (
         <div className="mt-6 grid grid-cols-4 gap-1.5 sm:gap-2.5">

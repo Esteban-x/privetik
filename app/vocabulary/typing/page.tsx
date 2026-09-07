@@ -12,6 +12,8 @@ import { useReviewQueue } from "@/lib/vocabulary/useReviewQueue";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
+import PronunciationRow from "@/components/vocabulary/PronunciationRow";
+import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
 import { ReviewCardSkeleton } from "@/components/ui/Skeleton";
 import { BulbIcon } from "@/components/ui/icons";
 
@@ -296,6 +298,23 @@ function TypingInner() {
             Enregistrement impossible — vérifie ta connexion et réessaie.
           </p>
         )}
+
+        {/* TANT QU'ON N'A PAS RÉPONDU, SEULE LA CONSIGNE SE PRONONCE. Le
+            mot attendu est ce qu'on demande d'écrire : l'entendre avant
+            reviendrait à le dicter. La règle est celle du mode Voix, où
+            « Écouter » soufflait la réponse (voir PROMPT_LANG). */}
+        <PronunciationRow
+          ru={current.ru}
+          fr={current.fr}
+          only={result ? undefined : expectedIsRussian ? "fr" : "ru"}
+          className="mt-5"
+        />
+
+        {/* Entre la correction et « Suivant » : on vient de lire ce qu'il
+            fallait écrire, la question suivante est de savoir pourquoi.
+            Placer la fiche après « Suivant » l'aurait mise derrière le
+            geste qui la fait disparaître. */}
+        {result && <ReviewExplanation wordId={current.id} />}
 
         <button
           ref={nextButtonRef}

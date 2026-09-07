@@ -30,6 +30,7 @@ const { NOUNS } = await jiti.import("../lib/grammar/nouns-data.ts");
 const { LEXICON } = await jiti.import("../lib/vocabulary/lexicon.generated.ts");
 const { wordKey, sameWord } = await jiti.import("../lib/vocabulary/duplicate.ts");
 const { nearMiss } = await jiti.import("../lib/vocabulary/autocomplete.ts");
+const { accentRu, hasStress, stripStress } = await jiti.import("../lib/vocabulary/accent.ts");
 const { isFrenchProse } = await jiti.import("../lib/ai/client.ts");
 const P = await jiti.import("../lib/ai/prompts.ts");
 const { ANSWER_LANG, PROMPT_LANG, RECOGNITION_ERRORS, MAX_LISTEN_MS, END_GRACE_MS } = await jiti.import("../lib/vocabulary/speech.ts");
@@ -540,6 +541,96 @@ require_(
   require_(
     END_GRACE_MS > 0 && END_GRACE_MS < MAX_LISTEN_MS,
     `micro : le délai de grâce (${END_GRACE_MS} ms) doit être court devant la borne d'écoute`
+  );
+}
+
+// ─── 9. L'accent tonique posé sur les mots d'une liste ────────────
+//
+// LE SEUL DÉFAUT QUI COMPTE EST L'ACCENT FAUX. Absent, l'apprenant sait
+// qu'il ne sait pas ; faux, il apprend une prononciation erronée avec la
+// même confiance que le reste — et rien à l'écran ne le distingue d'un
+// accent juste. Les contrôles portent donc d'abord sur les ABSTENTIONS.
+{
+  // a. Il pose ce qu'il sait, et le repose à l'identique. Le lexique
+  //    d'autocomplétion est accentué à la main : dénudé puis rendu à
+  //    accentRu, il doit revenir tel quel ou rester nu, jamais autre chose.
+  let restored = 0;
+  const wrong = [];
+  for (const [word] of LEXICON) {
+    const bareWord = stripStress(word);
+    const back = accentRu(bareWord);
+    if (back === word.normalize("NFC")) restored += 1;
+    // Ressorti nu : abstention légitime (homographe, ou absent de l'index).
+    else if (back !== bareWord) wrong.push(`${word} -> ${back}`);
+  }
+  require_(
+    wrong.length === 0,
+    `accent : ${wrong.length} mot(s) du lexique réaccentués autrement — ${wrong.slice(0, 5).join(", ")}`
+  );
+  require_(
+    restored > LEXICON.length * 0.8,
+    `accent : seulement ${restored}/${LEXICON.length} entrées du lexique retrouvent leur accent`
+  );
+
+  // b. LES HOMOGRAPHES RESTENT NUS. C'est le contrôle central : ces mots
+  //    ont deux lectures, seul le sens tranche, et une liste de vocabulaire
+  //    n'en porte aucun. « за́мок » (château) ne doit pas souffler son
+  //    accent à « замо́к » (serrure).
+  for (const word of ["замок", "дома", "вода", "большая", "мука", "окна", "цены", "стены"]) {
+    require_(
+      accentRu(word) === word,
+      `accent : « ${word} » est un homographe, il ne doit pas être accentué (reçu « ${accentRu(word)} »)`
+    );
+  }
+
+  // c. IL N'INVENTE RIEN sur ce qu'il ne connaît pas, et ne touche ni au
+  //    latin ni à ce qui porte déjà son accent.
+  for (const word of ["абракадабрический", "hello world", "", "приве́т"]) {
+    require_(accentRu(word) === word, `accent : « ${word} » aurait dû ressortir tel quel`);
+  }
+
+  // d. LE MONOSYLLABE N'A RIEN À MARQUER — son accent est forcé.
+  for (const word of ["стол", "чай", "дом"]) {
+    require_(!hasStress(accentRu(word)), `accent : « ${word} » n'a qu'une voyelle, rien à marquer`);
+  }
+
+  // e. Ё N'EST PAS UN ACCENT. « все » (tous) et « всё » (tout) sont deux
+  //    mots : poser l'accent de l'un sur l'autre les confondrait, ce que
+  //    wordKey refuse déjà de faire.
+  require_(accentRu("все") === "все", "accent : « все » ne doit pas recevoir la lecture de « всё »");
+
+  // f. L'ACCENT NE CHANGE PAS LE MOT. C'est ce qui autorise à le poser
+  //    après coup sur ce que l'apprenant a tapé : replié, le résultat est
+  //    identique à la saisie, donc la même entrée de liste et la même
+  //    réponse acceptée.
+  for (const word of ["привет", "хорошо", "поведение", "существовать", "он сомневается в себе"]) {
+    require_(
+      wordKey(accentRu(word)) === wordKey(word),
+      `accent : « ${word} » a changé d'identité en recevant son accent`
+    );
+    require_(
+      A.matchesAnswer(word, accentRu(word)),
+      `accent : « ${word} » tapé sans accent doit rester une bonne réponse`
+    );
+  }
+
+  // g. LA MAJUSCULE SURVIT : un mot en tête de phrase reste capitalisé.
+  require_(
+    accentRu("Поведение") === "Поведе́ние",
+    `accent : la majuscule initiale doit survivre (reçu « ${accentRu("Поведение")} »)`
+  );
+
+  // h. LA PHRASE EST TRAITÉE MOT À MOT — une liste contient des expressions.
+  require_(
+    accentRu("Он сомневается в себе") === "Он сомнева́ется в себе́",
+    `accent : phrase mal accentuée — reçu « ${accentRu("Он сомневается в себе")} »`
+  );
+
+  // i. LA TRANSLITTÉRATION S'AMÉLIORE, puisqu'elle se déduit de l'accent :
+  //    sans lui, aucune réduction vocalique n'est appliquée.
+  require_(
+    transliterate(accentRu("хорошо")) === "kharacho",
+    `accent : « хорошо » accentué devrait se lire « kharacho », reçu « ${transliterate(accentRu("хорошо"))} »`
   );
 }
 

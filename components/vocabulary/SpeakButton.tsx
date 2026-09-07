@@ -15,16 +15,28 @@ import { useEffect, useRef, useState } from "react";
  * que par une roulette qui remplacerait le pictogramme. Rien ne change de
  * taille, rien ne saute, et le geste animé dit déjà ce qu'on attend : du
  * son.
+ *
+ * DEUX FORMES, UN SEUL COMPORTEMENT. Sans `text`, le bouton est le
+ * pictogramme seul, adossé au mot qu'il prononce — c'est la forme des
+ * cartes de liste et des révisions écrites, où le mot est juste à côté.
+ * Avec `text`, il devient une pastille nommée (« Russe », « Français ») :
+ * la forme des cartes retournées, où le mot vit à l'intérieur d'un bouton
+ * et ne peut donc pas en contenir un second. L'attente, la déduplication
+ * et le pictogramme restent communs — deux composants auraient divergé sur
+ * l'animation, qui est justement ce qui fait comprendre l'attente.
  */
 export default function SpeakButton({
   label,
   title,
   onSpeak,
+  text,
   className = "",
 }: {
   label: string;
   title: string;
   onSpeak: () => Promise<void>;
+  /** Libellé visible. Absent, le bouton se réduit à son pictogramme. */
+  text?: string;
   className?: string;
 }) {
   const [pending, setPending] = useState(false);
@@ -59,16 +71,24 @@ export default function SpeakButton({
       aria-label={label}
       title={title}
       aria-busy={pending}
-      className={`shrink-0 self-center rounded-lg p-1 text-muted/60 transition-colors hover:bg-bg hover:text-accent-ink ${
-        pending ? "text-accent-ink" : ""
-      } ${className}`}
+      className={
+        text
+          ? `inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 font-display text-[13px] font-semibold transition-colors sm:text-sm ${
+              pending
+                ? "border-accent/35 bg-accent/10 text-accent-ink"
+                : "border-border text-text hover:border-accent/35 hover:bg-accent/10"
+            } ${className}`
+          : `shrink-0 self-center rounded-lg p-1 text-muted/60 transition-colors hover:bg-bg hover:text-accent-ink ${
+              pending ? "text-accent-ink" : ""
+            } ${className}`
+      }
     >
       <svg
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
-        className="h-3.5 w-3.5"
+        className={text ? "h-4 w-4" : "h-3.5 w-3.5"}
       >
         {/* Le cône ne bouge jamais : c'est lui qui donne au bouton sa
             silhouette reconnaissable. Seules les ondes s'animent. */}
@@ -84,6 +104,7 @@ export default function SpeakButton({
           className={pending ? "wave-pulse [animation-delay:180ms]" : ""}
         />
       </svg>
+      {text}
     </button>
   );
 }

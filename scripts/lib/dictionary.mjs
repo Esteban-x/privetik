@@ -236,5 +236,17 @@ export async function loadDictionary(kinds = Object.keys(SOURCES)) {
     isLemma: (word) => byBare.has(stripAccent(word)) || byFold.has(fold(word)),
     /** L'index d'une seule catégorie, pour les scripts qui lisent des colonnes. */
     of: (kind) => byKind[kind],
+    /**
+     * Les LIGNES BRUTES d'une catégorie, homographes compris.
+     *
+     * `of()` et `byBare` gardent la première entrée d'un mot : les doublons
+     * y sont des sens distincts, et pour décliner « за́мок » le premier sens
+     * suffit. Mais pour SAVOIR QU'UN MOT EST AMBIGU il faut justement les
+     * lignes que ces index écartent — « за́мок » (château) et « замо́к »
+     * (serrure) partagent la forme nue et n'ont pas le même accent. Sans
+     * cet accès, on ne peut pas distinguer un mot à lecture unique d'un
+     * homographe, et l'on pose l'accent du premier sens sur le second.
+     */
+    rows: (kind) => loaded.get(kind) ?? [],
   };
 }

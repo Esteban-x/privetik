@@ -11,6 +11,8 @@ import { useReviewQueue } from "@/lib/vocabulary/useReviewQueue";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
+import PronunciationRow from "@/components/vocabulary/PronunciationRow";
+import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
 import { ReviewCardSkeleton } from "@/components/ui/Skeleton";
 
 function shuffle<T>(arr: T[]): T[] {
@@ -254,6 +256,20 @@ function QcmInner() {
             Enregistrement impossible — cette révision n&apos;a pas été comptée.
           </p>
         )}
+
+        {/* Avant le choix, seule la consigne se prononce : les quatre
+            propositions sont à l'écran, en entendre une désignerait la
+            bonne. */}
+        <PronunciationRow
+          ru={current.ru}
+          fr={current.fr}
+          only={picked ? undefined : expectedIsRussian ? "fr" : "ru"}
+          className="mt-5"
+        />
+
+        {/* Une option choisie vaut réponse vue : le vert et le rouge sont
+            déjà posés sur la grille, la fiche ne peut plus rien souffler. */}
+        {picked && <ReviewExplanation wordId={current.id} />}
 
         {picked && (
           <button

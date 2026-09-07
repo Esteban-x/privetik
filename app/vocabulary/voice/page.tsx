@@ -11,6 +11,7 @@ import {
   onSpeechBusy,
   prefetchRu,
   PROMPT_LANG,
+  speakFr,
   speakIn,
   speakRu,
   useSpeechRecognition,
@@ -21,6 +22,7 @@ import { useReviewQueue } from "@/lib/vocabulary/useReviewQueue";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
+import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
 import { ReviewCardSkeleton } from "@/components/ui/Skeleton";
 import { MicIcon, SpeakerIcon } from "@/components/ui/icons";
 
@@ -400,8 +402,25 @@ function VoiceInner() {
             </div>
             <p className="font-display text-sm text-muted">{current.transliteration}</p>
             {/* La consigne n'ayant jamais été écrite, elle s'affiche ICI :
-                sans elle on ne saurait pas ce qu'on vient de rater. */}
-            <p className="mt-2 font-display text-base">{current.fr}</p>
+                sans elle on ne saurait pas ce qu'on vient de rater.
+
+                ET ELLE S'ÉCOUTE AUSSI. Le russe avait son haut-parleur
+                depuis que la prononciation a quitté la rangée du haut ; le
+                français n'en avait aucun, alors que dans le sens
+                « dis ce mot en russe » c'est LUI qu'on vient d'entendre en
+                consigne et qu'on peut vouloir réentendre après coup. */}
+            <div className="mt-2 flex items-center gap-2">
+              <p className="font-display text-base">{current.fr}</p>
+              <button
+                onClick={() => void speakFr(current.fr)}
+                aria-busy={loadingAudio}
+                aria-label="Écouter la prononciation française"
+                title="Écouter la prononciation"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-ink transition-colors hover:bg-accent/15"
+              >
+                <SpeakerIcon className="h-4 w-4" />
+              </button>
+            </div>
             {current.example && (
               <p className="mt-3 font-display text-sm text-muted">
                 {current.example.ru} <span className="italic">— {current.example.fr}</span>
@@ -410,6 +429,11 @@ function VoiceInner() {
           </div>
         )}
       </div>
+
+      {/* Sous la carte, comme en mode Cartes : le mode est oral, mais une
+          fois le mot dit et révélé, savoir ce qu'il porte vaut autant
+          qu'ailleurs. */}
+      {revealed && <ReviewExplanation wordId={current.id} />}
 
       {revealed && (
         <div className="mt-6 grid grid-cols-4 gap-1.5 sm:gap-2.5">

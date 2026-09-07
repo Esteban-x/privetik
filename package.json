@@ -40,6 +40,7 @@
     "check:json": "node scripts/check-json-parse.mjs",
     "build:lexicon": "node scripts/build-lexicon.mjs",
     "build:lexicon:ai": "node scripts/build-lexicon-ai.mjs",
+    "build:stress": "node scripts/build-stress.mjs",
     "build:brand": "node scripts/build-brand.mjs"
   },
   "dependencies": {
