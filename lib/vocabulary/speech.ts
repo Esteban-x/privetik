@@ -39,12 +39,18 @@ declare global {
 }
 
 /** Prononce un texte à voix haute. No-op silencieux si le navigateur ne le supporte pas. */
-export function speak(text: string, lang: string) {
+export function speak(text: string, lang: string, rate = 1) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel(); // n'empile pas les prononciations précédentes
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = lang;
-  window.speechSynthesis.speak(utterance);
+  try {
+    window.speechSynthesis.cancel(); // n'empile pas les prononciations précédentes
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = rate;
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // Synthèse refusée (aucune voix, contexte restreint) : le silence plutôt
+    // qu'une exception qui remonterait jusqu'au bouton.
+  }
 }
 
 // ─── Prononciation : voix de synthèse professionnelle ───────────
@@ -145,31 +151,67 @@ async function resolveAudioUrl(lang: SpeechLang, text: string): Promise<string |
  * qu'un bouton mort — et en français, la voix du navigateur est même tout
  * à fait correcte sur un poste francophone.
  */
-export async function speakIn(lang: SpeechLang, text: string) {
+export async function speakIn(
+  lang: SpeechLang,
+  text: string,
+  /** `rate` < 1 ralentit la lecture — pour réentendre un mot syllabe par syllabe. */
+  options: { rate?: number } = {}
+) {
   if (typeof window === "undefined") return;
+  const rate = options.rate ?? 1;
 
-  // Coupe la prononciation précédente, quelle que soit sa source.
-  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-  }
+  // Coupe la prononciation précédente, quelle que soit sa source — et
+  // celles qui attendent encore leur fichier.
+  stopSpeaking();
+  const mine = speechGeneration;
 
   const url = await resolveAudioUrl(lang, text);
+  // UNE AUTRE DEMANDE EST ARRIVÉE PENDANT L'ATTENTE. Sans ce contrôle, deux
+  // mots se chevauchaient : la lecture automatique du mot suivant attendait
+  // son fichier pendant qu'on cliquait « Écouter », et les deux sons
+  // partaient l'un sur l'autre. Pire, un micro ouvert entre-temps captait
+  // la voix de synthèse et la transcrivait comme réponse.
+  if (mine !== speechGeneration) return;
   if (!url) {
-    speak(text, lang === "ru" ? "ru-RU" : "fr-FR");
+    speak(text, lang === "ru" ? "ru-RU" : "fr-FR", rate);
     return;
   }
 
   try {
     const audio = new Audio(url);
+    audio.playbackRate = rate;
     currentAudio = audio;
     await audio.play();
   } catch {
     // Lecture refusée (politique d'autoplay, fichier illisible) : la voix
     // du navigateur, elle, part d'un geste utilisateur déjà validé.
+    if (mine !== speechGeneration) return;
     currentAudio = null;
-    speak(text, lang === "ru" ? "ru-RU" : "fr-FR");
+    speak(text, lang === "ru" ? "ru-RU" : "fr-FR", rate);
+  }
+}
+
+/** Numéro de la dernière demande de lecture : une réponse plus ancienne se tait. */
+let speechGeneration = 0;
+
+/**
+ * Fait taire tout ce qui parle ou s'apprête à parler.
+ *
+ * Appelé avant d'ouvrir le micro : la reconnaissance vocale entend ce que
+ * les haut-parleurs jouent, et une consigne encore en cours de lecture était
+ * transcrite comme si l'apprenant l'avait dite.
+ */
+export function stopSpeaking() {
+  speechGeneration += 1;
+  if (typeof window === "undefined") return;
+  if ("speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  }
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
   }
 }
 
@@ -287,6 +329,9 @@ export const MAX_LISTEN_MS = 12000;
  */
 export const END_GRACE_MS = 1500;
 
+/** Lectures demandées au moteur pour une même phrase — voir `alternatives`. */
+export const MAX_ALTERNATIVES = 5;
+
 export function useSpeechRecognition(lang: string) {
   // La présence de l'API est un état EXTERNE, pas un état React : elle
   // dépend du navigateur et ne change jamais. Un `useState(false)` corrigé
@@ -298,6 +343,16 @@ export function useSpeechRecognition(lang: string) {
 
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
+  /**
+   * Toutes les lectures proposées par le moteur, la plus probable d'abord.
+   *
+   * UNE SEULE NE SUFFISAIT PAS. Sur un mot isolé, le moteur hésite souvent
+   * entre plusieurs graphies — « книга », « книгу », « Книга. » — et sa
+   * première idée n'est pas toujours la bonne. Comparer la seule première
+   * lecture déclarait fausse une réponse juste que le moteur avait bien
+   * entendue en deuxième position.
+   */
+  const [alternatives, setAlternatives] = useState<string[]>([]);
   /** Ce qui a empêché l'écoute d'aboutir, prêt à afficher. "" = rien à dire. */
   const [error, setError] = useState("");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -339,6 +394,9 @@ export function useSpeechRecognition(lang: string) {
     // Une écoute déjà en cours : `start()` lèverait InvalidStateError.
     clearTimer();
     recognitionRef.current?.abort();
+    // Le micro entend les haut-parleurs : une consigne encore en lecture
+    // serait transcrite comme la réponse.
+    stopSpeaking();
 
     const mine = (token.current += 1);
     const isStale = () => token.current !== mine;
@@ -355,7 +413,7 @@ export function useSpeechRecognition(lang: string) {
     // d'écouter jusqu'à ce qu'on reclique.
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = MAX_ALTERNATIVES;
 
     /**
      * LA FIN, D'OÙ QU'ELLE VIENNE, ET ELLE DIT TOUJOURS QUELQUE CHOSE.
@@ -399,13 +457,19 @@ export function useSpeechRecognition(lang: string) {
 
     recognition.onresult = (e) => {
       if (isStale()) return;
-      const heard = (e.results[0]?.[0]?.transcript ?? "").trim();
+      const result = e.results[0];
+      const heard: string[] = [];
+      for (let i = 0; i < MAX_ALTERNATIVES; i += 1) {
+        const text = (result?.[i]?.transcript ?? "").trim();
+        if (text && !heard.includes(text)) heard.push(text);
+      }
       // UN TRANSCRIPT VIDE N'EST PAS UN RÉSULTAT. Il ne s'affiche pas —
       // `{transcript && …}` est faux — donc l'écran ne bougeait pas, et
       // `finish` doit le traiter comme une tentative restée sans réponse.
-      if (heard) {
+      if (heard.length > 0) {
         heardSomething = true;
-        setTranscript(heard);
+        setTranscript(heard[0]);
+        setAlternatives(heard);
       }
       // Ceinture et bretelles avec `continuous = false` : certains moteurs
       // gardent le micro ouvert quelques secondes de plus après le résultat.
@@ -439,6 +503,7 @@ export function useSpeechRecognition(lang: string) {
     graceRef.current = armEndGrace;
 
     setTranscript("");
+    setAlternatives([]);
     setError("");
 
     // `start()` PEUT LEVER, et c'était le premier bug : l'indicateur était
@@ -464,7 +529,27 @@ export function useSpeechRecognition(lang: string) {
    */
   function reset() {
     setTranscript("");
+    setAlternatives([]);
     setError("");
+    setListening(false);
+  }
+
+  /**
+   * Coupe l'écoute en cours SANS toucher à l'état React — à appeler depuis un
+   * effet, en complément de `reset` appelé au rendu.
+   *
+   * UNE ÉCOUTE OUVERTE SUR UN MOT RÉPONDAIT POUR LE SUIVANT. Noter une carte
+   * pendant que le micro tournait passait au mot suivant sans l'arrêter : la
+   * phrase dite pour l'ancien mot arrivait sous le nouveau, et la consigne
+   * lue d'office pour celui-ci pouvait même être transcrite. Le jeton rend
+   * muets les événements tardifs de l'instance abandonnée.
+   */
+  function abort() {
+    token.current += 1;
+    clearTimer();
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    recognition?.abort();
   }
 
   function stop() {
@@ -486,5 +571,5 @@ export function useSpeechRecognition(lang: string) {
     };
   }, []);
 
-  return { supported, listening, transcript, error, start, stop, reset };
+  return { supported, listening, transcript, alternatives, error, start, stop, reset, abort };
 }

@@ -39,20 +39,6 @@ export function SkeletonLines({
   );
 }
 
-/** Une "carte mot" factice (clue + zone de réponse) pour les modes de révision vocabulaire. */
-export function ReviewCardSkeleton() {
-  return (
-    <div className="animate-fade-in rounded-[20px] surface p-8 text-center shadow-float">
-      <div className="mb-3 flex justify-center">
-        <LoadingDots label="Chargement du mot…" />
-      </div>
-      <div className="skeleton mx-auto h-4 w-40 rounded-full" />
-      <div className="skeleton mx-auto mt-3 h-9 w-56 rounded-lg" />
-      <div className="skeleton mt-6 h-[52px] w-full rounded-[10px]" />
-    </div>
-  );
-}
-
 /** Grille de cartes "liste" factices (page /vocabulary). */
 export function ListCardsSkeleton({ cards = 4 }: { cards?: number }) {
   return (
@@ -61,26 +47,6 @@ export function ListCardsSkeleton({ cards = 4 }: { cards?: number }) {
         <div key={i} className="rounded-2xl surface p-5">
           <div className="skeleton h-5 w-2/3 rounded-lg" />
           <div className="skeleton mt-2.5 h-3.5 w-1/4 rounded-full" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** Lignes de mots factices pour les listes (aperçu ou détail). */
-export function ListRowsSkeleton({ rows = 5 }: { rows?: number }) {
-  return (
-    <div className="animate-fade-in space-y-2.5">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className="flex items-center justify-between gap-3 rounded-[14px] surface px-4 py-3.5"
-        >
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="skeleton h-3.5 w-1/3 rounded-full" />
-            <div className="skeleton h-3 w-1/2 rounded-full" />
-          </div>
-          <div className="skeleton h-7 w-16 shrink-0 rounded-lg" />
         </div>
       ))}
     </div>

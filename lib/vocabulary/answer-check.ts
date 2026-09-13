@@ -67,3 +67,75 @@ export function matchesAnswer(userAnswer: string, expected: string): boolean {
   const variants = answerVariants(expected);
   return variants.includes(given) || (bare.length > 0 && variants.includes(bare));
 }
+
+// ─── La réponse DITE à voix haute ───────────────────────────────────
+
+/**
+ * Ce qu'une reconnaissance vocale ajoute d'elle-même autour des mots.
+ *
+ * Le moteur ponctue et met des majuscules : « Книга. », « C'est un livre ! ».
+ * Une réponse tapée ne porte jamais ce point final ; une réponse dite le
+ * porte presque toujours, et `matchesAnswer` la déclarait donc fausse.
+ */
+const SPOKEN_PUNCTUATION = /[.,!?;:«»"“”„()…–—-]/g;
+
+function cleanSpoken(text: string): string {
+  return text.replace(SPOKEN_PUNCTUATION, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Distance d'édition, bornée : au-delà de `max`, la valeur exacte ne sert à rien. */
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost);
+      best = Math.min(best, row[j]);
+    }
+    if (best > max) return max + 1;
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+export type SpokenVerdict = "match" | "close" | "miss";
+
+/**
+ * Ce qu'on a entendu correspond-il à la réponse attendue ?
+ *
+ * TROIS RÉPONSES, PARCE QUE LE MICRO SE TROMPE. « match » : l'une des
+ * lectures du moteur est la réponse, seule ou dans une courte phrase
+ * (« это книга », « c'est un livre »). « close » : à une lettre près — un
+ * cas mal formé, une syllabe avalée, ou le moteur qui a mal transcrit ; on
+ * ne sait pas lequel, et on le dit. « miss » : rien de proche.
+ *
+ * Toutes les lectures proposées par le moteur sont examinées, pas la seule
+ * première (voir `alternatives` dans speech.ts).
+ *
+ * UN INDICE, JAMAIS UNE NOTE : ce verdict n'alimente ni le SRS ni la série.
+ * C'est l'apprenant qui note sa carte.
+ */
+export function judgeSpoken(heard: string[], expected: string): SpokenVerdict {
+  const variants = answerVariants(expected).map(cleanSpoken).filter(Boolean);
+  let close = false;
+
+  for (const raw of heard) {
+    const given = cleanSpoken(normalizeAnswer(raw));
+    if (!given) continue;
+    const bare = stripArticle(given);
+
+    for (const variant of variants) {
+      if (given === variant || bare === variant) return "match";
+      // Le mot dans une phrase — mais pas un mot de deux lettres, qu'on
+      // retrouverait au milieu de n'importe quelle réponse.
+      if (variant.length >= 3 && ` ${given} `.includes(` ${variant} `)) return "match";
+
+      const tolerance = variant.length >= 8 ? 2 : variant.length >= 4 ? 1 : 0;
+      if (tolerance > 0 && editDistance(bare, variant, tolerance) <= tolerance) close = true;
+    }
+  }
+  return close ? "close" : "miss";
+}

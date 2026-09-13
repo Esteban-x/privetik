@@ -14,21 +14,26 @@ import {
   speakFr,
   speakIn,
   speakRu,
+  stopSpeaking,
   useSpeechRecognition,
 } from "@/lib/vocabulary/speech";
 import { fetchDailyProgress } from "@/lib/vocabulary/custom";
-import { matchesAnswer } from "@/lib/vocabulary/answer-check";
+import { judgeSpoken, type SpokenVerdict } from "@/lib/vocabulary/answer-check";
 import { useReviewQueue } from "@/lib/vocabulary/useReviewQueue";
+import type { VocabItem } from "@/lib/vocabulary/data";
+import type { Focus } from "@/lib/vocabulary/focus";
+import type { Quality } from "@/lib/srs/sm2";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
+import NoWordsState from "@/components/vocabulary/NoWordsState";
 import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
-import { ReviewCardSkeleton } from "@/components/ui/Skeleton";
+import { ReviewSessionSkeleton } from "@/components/vocabulary/VocabularySkeletons";
 import { MicIcon, SpeakerIcon } from "@/components/ui/icons";
 
 export default function VoicePage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<ReviewSessionSkeleton mode="voice" />}>
       <VoiceInner />
     </Suspense>
   );
@@ -46,7 +51,6 @@ function VoiceInner() {
     saveDirection("voice", d);
   }
 
-  const [revealed, setRevealed] = useState(false);
   const {
     blocked,
     current,
@@ -57,74 +61,19 @@ function VoiceInner() {
     listName,
     sessionIndex,
     sessionCorrect,
+    remaining,
     noWordsAtAll,
     allKnown,
     currentFocus,
     setFocus,
   } = useReviewQueue(listId);
-  const {
-    supported: micSupported,
-    listening,
-    transcript,
-    error: micError,
-    start,
-    stop,
-    reset: resetSpeech,
-  } = useSpeechRecognition(ANSWER_LANG[direction]);
-
-  // La synthèse d'un mot INÉDIT demande une seconde et demie. Sur cette
-  // page l'attente est la plus pénible de l'app : en mode écoute, le mot
-  // part tout seul, et sans rien à l'écran l'apprenant fixe un bouton muet
-  // sans savoir si quelque chose arrive.
-  //
-  // ABONNEMENT, et non état local : « une synthèse est en cours » vit dans
-  // la couche audio, pas dans ce composant. La lecture automatique plus bas
-  // part d'un effet — y poser un setState placerait une mise à jour dans le
-  // corps synchrone de l'effet. Ici c'est la couche audio qui prévient, et
-  // le setState a lieu dans son callback : le motif que React recommande.
-  // Bénéfice au passage, l'indicateur couvre les deux boutons ET la lecture
-  // automatique sans qu'aucun des trois n'ait à s'en occuper.
-  const [loadingAudio, setLoadingAudio] = useState(false);
-  useEffect(() => onSpeechBusy(setLoadingAudio), []);
 
   const [daily, setDaily] = useState<{ reviewedToday: number; goal: number } | null>(null);
   useEffect(() => {
     fetchDailyProgress().then(setDaily).catch(() => {});
   }, []);
 
-  // Nouveau mot : efface la tentative précédente. Ajusté pendant le rendu
-  // (plutôt que dans un effet) en comparant à l'id précédemment vu — pas de
-  // rendu intermédiaire périmé.
-  const [seenQuestionId, setSeenQuestionId] = useState(current?.id);
-  if (current?.id !== seenQuestionId) {
-    setSeenQuestionId(current?.id);
-    setRevealed(false);
-    // Le transcript du mot PRÉCÉDENT restait sous le nouveau : on validait
-    // une réponse qu'on n'avait pas donnée.
-    resetSpeech();
-  }
-
-  // Lecture automatique de la prononciation en mode écoute (ru-first) : reste
-  // dans un effet, c'est un vrai effet de bord (audio) déclenché par le
-  // changement de mot, pas un simple ajustement d'état React.
-  useEffect(() => {
-    if (!current) return;
-    // LA CONSIGNE EST ÉNONCÉE, jamais écrite : c'est elle qu'il faut avoir
-    // entendue pour répondre. Les deux sens se comportent donc pareil — seul
-    // change ce qui est prononcé, le russe ou le français.
-    void speakIn(PROMPT_LANG[direction], direction === "ru-first" ? current.ru : current.fr);
-    // Le mot russe sera proposé à la révélation : on le prépare pendant que
-    // l'apprenant cherche, sinon le son arrive après coup.
-    if (direction === "fr-first") prefetchRu(current.ru);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.id]);
-
-  function handleReview(quality: Parameters<typeof review>[0]) {
-    review(quality);
-    setRevealed(false);
-  }
-
-  const backHref = listId ? `/vocabulary/lists/${listId}` : "/vocabulary/review";
+  const backHref = listId ? `/vocabulary?list=${listId}` : "/vocabulary/review";
   const backLabel = listId ? `← ${listName || "Liste"}` : "← Révision";
 
   // Le plafond de révisions du plan gratuit passe AVANT tout le reste :
@@ -149,17 +98,9 @@ function VoiceInner() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-2xl px-6 py-8 sm:py-16">
-        <ReviewCardSkeleton />
-      </div>
-    );
-  }
+  if (loading) return <ReviewSessionSkeleton mode="voice" />;
 
-  if (noWordsAtAll) {
-    return <EmptyState />;
-  }
+  if (noWordsAtAll) return <NoWordsState listId={listId} />;
 
   if (allKnown) {
     return <AllKnownState backHref={backHref} backLabel={backLabel} />;
@@ -181,24 +122,186 @@ function VoiceInner() {
     );
   }
 
+  return (
+    <VoiceSession
+      word={current}
+      direction={direction}
+      onDirectionChange={changeDirection}
+      focus={currentFocus}
+      onFocusChange={setFocus}
+      onReview={review}
+      position={sessionIndex + 1}
+      remaining={remaining}
+      backHref={backHref}
+      backLabel={backLabel}
+    />
+  );
+}
+
+/** Les quatre notes, dans l'ordre des boutons et des touches 1 à 4. */
+const QUALITIES: { value: Quality; label: string; color: string }[] = [
+  { value: 1, label: "À revoir", color: "var(--color-accent2-deep)" },
+  { value: 3, label: "Difficile", color: "var(--color-accent2)" },
+  { value: 4, label: "Bien", color: "var(--color-accent-ink)" },
+  { value: 5, label: "Facile", color: "var(--color-success)" },
+];
+
+/**
+ * La note qu'on propose d'après ce qui a été entendu. Une PROPOSITION : le
+ * bouton est cerclé, rien n'est enregistré sans le geste de l'apprenant.
+ */
+const SUGGESTED: Record<SpokenVerdict, Quality> = { match: 4, close: 3, miss: 1 };
+
+/**
+ * La session proprement dite, une fois les mots chargés.
+ *
+ * SÉPARÉE DE LA PAGE pour que ses effets — lecture de la consigne, micro,
+ * raccourcis clavier — n'existent que lorsqu'il y a un mot à travailler :
+ * posés au-dessus des retours anticipés (chargement, fin de session), ils
+ * auraient dû se protéger chacun de l'absence de mot.
+ */
+function VoiceSession({
+  word,
+  direction,
+  onDirectionChange,
+  focus,
+  onFocusChange,
+  onReview,
+  position,
+  remaining,
+  backHref,
+  backLabel,
+}: {
+  word: VocabItem;
+  direction: VocabDirection;
+  onDirectionChange: (d: VocabDirection) => void;
+  focus: Focus;
+  onFocusChange: (f: Focus) => void;
+  onReview: (quality: Quality) => void;
+  position: number;
+  remaining: number;
+  backHref: string;
+  backLabel: string;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const {
+    supported: micSupported,
+    listening,
+    transcript,
+    alternatives,
+    error: micError,
+    start,
+    stop,
+    reset: resetSpeech,
+    abort: abortListening,
+  } = useSpeechRecognition(ANSWER_LANG[direction]);
+
+  // La synthèse d'un mot INÉDIT demande une seconde et demie : l'indicateur
+  // vit dans la couche audio, à laquelle on s'abonne (voir onSpeechBusy).
+  const [loadingAudio, setLoadingAudio] = useState(false);
+  useEffect(() => onSpeechBusy(setLoadingAudio), []);
+
+  // Quitter la page pendant une lecture la laissait se terminer sur la page
+  // suivante.
+  useEffect(() => () => stopSpeaking(), []);
+
   const listenAndRecall = direction === "ru-first";
+  /** Ce que « Écouter » prononce : la consigne, jamais la réponse. */
+  const promptText = listenAndRecall ? word.ru : word.fr;
+  const answerText = listenAndRecall ? word.fr : word.ru;
+
+  // UNE NOUVELLE QUESTION — un autre mot, OU le même dans l'autre sens.
+  // Changer de sens en cours de mot gardait la réponse révélée et le
+  // transcript de l'autre langue : on se retrouvait devant la solution d'une
+  // question qu'on ne s'était pas encore posée. Ajusté pendant le rendu,
+  // sans rendu intermédiaire périmé.
+  const questionKey = `${word.id}|${direction}`;
+  const [seenQuestion, setSeenQuestion] = useState(questionKey);
+  if (questionKey !== seenQuestion) {
+    setSeenQuestion(questionKey);
+    setRevealed(false);
+    resetSpeech();
+  }
+
+  // La consigne est ÉNONCÉE à chaque nouvelle question — c'est un effet de
+  // bord audio, pas un ajustement d'état. L'écoute éventuellement restée
+  // ouverte sur la question précédente est coupée d'abord : sinon elle
+  // répondait pour celle-ci, et captait la consigne qu'on va lire.
+  useEffect(() => {
+    abortListening();
+    void speakIn(PROMPT_LANG[direction], promptText);
+    // Le mot russe sera proposé à la révélation : on le prépare pendant que
+    // l'apprenant cherche, sinon le son arrive après coup.
+    if (direction === "fr-first") prefetchRu(word.ru);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questionKey]);
 
   /**
-   * Le transcript ressemble-t-il à la réponse attendue ?
-   *
-   * `matchesAnswer` est la même comparaison que le mode Frappe — elle
-   * tolère les variantes (« voiture, auto »), les articles et les accents
-   * français. Ici elle n'ALIMENTE RIEN : ni SRS, ni série, ni précision.
-   * C'est un indice affiché à côté de ce qui a été entendu, et l'apprenant
-   * garde le dernier mot, parce qu'une reconnaissance vocale se trompe
-   * assez souvent pour qu'on ne lui confie pas une note.
+   * Ce qu'on a entendu, rapproché de la réponse — toutes les lectures du
+   * moteur comprises. Un INDICE, jamais une note : la reconnaissance se
+   * trompe sur un accent ou une syllabe avalée, et l'apprenant garde le
+   * dernier mot sur sa carte.
    */
-  /** Ce que « Écouter » prononce : la consigne, jamais la réponse. */
-  const promptText = listenAndRecall ? current.ru : current.fr;
+  const verdict: SpokenVerdict | null =
+    alternatives.length > 0 ? judgeSpoken(alternatives, answerText) : null;
 
-  const heardMatches =
-    transcript.trim().length > 0 &&
-    matchesAnswer(transcript, listenAndRecall ? current.fr : current.ru);
+  // UNE BONNE RÉPONSE SE RÉVÈLE D'ELLE-MÊME. Il fallait dire le mot, lire
+  // « ça correspond », cliquer « Valider », puis choisir une note : trois
+  // gestes pour confirmer ce que l'app venait d'établir. Sur un doute ou un
+  // écart, la réponse reste cachée — on peut vouloir redire avant de la voir.
+  const shown = revealed || verdict === "match";
+  const suggested = verdict ? SUGGESTED[verdict] : null;
+
+  function handleReview(quality: Quality) {
+    stopSpeaking();
+    onReview(quality);
+  }
+
+  function replay(rate = 1) {
+    void speakIn(PROMPT_LANG[direction], promptText, { rate });
+  }
+
+  /**
+   * LE CLAVIER, POUR ENCHAÎNER SANS VISER. Une session vocale se fait les
+   * yeux ailleurs que sur l'écran ; chercher quatre boutons à la souris entre
+   * deux mots cassait le rythme de l'exercice. Ignoré quand le focus est sur
+   * un champ ou un bouton, dont Espace et Entrée sont déjà le geste.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      const onControl = Boolean(target?.closest("button, a"));
+
+      if (e.key === " " && !onControl) {
+        e.preventDefault();
+        if (micSupported) {
+          if (listening) stop();
+          else start();
+        } else if (!shown) {
+          setRevealed(true);
+        }
+        return;
+      }
+      if (e.key === "Enter" && !onControl && !shown) {
+        e.preventDefault();
+        setRevealed(true);
+        return;
+      }
+      if (e.key === "e" || e.key === "E") {
+        replay();
+        return;
+      }
+      if (shown && ["1", "2", "3", "4"].includes(e.key)) {
+        handleReview(QUALITIES[Number(e.key) - 1].value);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const left = remaining - 1;
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8 sm:py-16">
@@ -209,18 +312,25 @@ function VoiceInner() {
         >
           {backLabel}
         </Link>
-        <DirectionToggle direction={direction} onChange={changeDirection} />
+        <DirectionToggle direction={direction} onChange={onDirectionChange} />
       </div>
 
-      <p className="mb-4 text-center font-display text-xs font-semibold uppercase tracking-wide text-muted">
-        {current.theme} · mot {sessionIndex + 1}
-      </p>
+      {/* OÙ L'ON EN EST. Le mode ne disait que le rang du mot : une session
+          de trente mots et une de trois se ressemblaient jusqu'au résumé. */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="font-display text-xs font-semibold uppercase tracking-wide text-muted">
+          {word.theme} · mot {position}
+        </p>
+        <p className="font-display text-xs font-semibold text-muted">
+          {left > 0 ? `encore ${left}` : "dernier mot"}
+        </p>
+      </div>
 
       {/* Le même sélecteur que sur la carte d'une liste, à la même place
           dans le geste : ce que l'apprenant décide ici vaut pour toutes les
           révisions à venir. */}
       <div className="mb-4 flex justify-center">
-        <FocusControl value={currentFocus} word={current.ru} onChange={setFocus} />
+        <FocusControl value={focus} word={word.ru} onChange={onFocusChange} />
       </div>
 
       <div className="rounded-[20px] surface p-6 text-center shadow-float sm:p-8">
@@ -230,48 +340,24 @@ function VoiceInner() {
             : "Écoute le mot français, et dis-le en russe :"}
         </p>
 
-        {/* RIEN N'EST ÉCRIT, DANS AUCUN DES DEUX SENS : c'est ce qui fait de
-            ce mode un exercice ORAL plutôt qu'une carte avec un micro à côté.
-
-            « Écoute et devine » cachait déjà son mot russe, et l'énonçait.
-            « Dis ce mot en russe » affichait sa consigne française — on
-            lisait donc une étiquette et on traduisait, exactement ce que fait
-            le mode Cartes. Il n'y avait plus rien à retrouver à l'oreille, et
-            le seul apport du mode, entendre puis produire, disparaissait.
-
-            La consigne se PRONONCE maintenant des deux côtés. Ce qui reste à
-            l'écran est un point d'interrogation, de même taille dans les deux
-            cas, pour que les commandes tombent au même endroit quand on
-            change de sens. Le texte apparaît à la révélation, avec la
-            réponse — c'est là qu'on vérifie, pas avant. */}
+        {/* RIEN N'EST ÉCRIT AVANT LA RÉPONSE, DANS AUCUN DES DEUX SENS : c'est
+            ce qui fait de ce mode un exercice ORAL plutôt qu'une carte avec
+            un micro à côté. La consigne se prononce ; le texte n'apparaît
+            qu'avec la réponse. */}
         <p className="mt-2 font-display text-3xl font-bold text-muted/40" aria-hidden>
           ?
         </p>
 
         {/* Deux pastilles de même forme, même largeur, même rangée : écouter
-            et parler sont deux gestes de même rang. L'ancienne carte opposait
-            un disque de 80 px d'un côté à un lien souligné de l'autre, et le
-            bouton d'enregistrement n'avait pas de `flex` — son pictogramme et
-            son libellé ne s'alignaient pas.
-
-            « ÉCOUTER » DIT LA CONSIGNE, JAMAIS LA RÉPONSE. Il jouait le mot
-            russe dans les deux sens. En « dis ce mot en russe », le russe est
-            précisément ce qu'on demande de produire : le bouton soufflait
-            donc la réponse, et à hauteur de première étape — une pastille de
-            même poids que « Dire en russe », qu'on presse naturellement en
-            premier. Il joue maintenant ce qui est demandé : le russe quand
-            on doit deviner le sens, le français quand on doit dire le mot
-            russe. La prononciation russe reste à un clic, mais APRÈS la
-            révélation, là où l'entendre s'appelle apprendre et non tricher. */}
+            et parler sont deux gestes de même rang. « Écouter » dit la
+            consigne, jamais la réponse (voir PROMPT_LANG). */}
         <div className={`mt-6 grid gap-2 sm:gap-2.5 ${micSupported ? "grid-cols-2" : "grid-cols-1"}`}>
           <button
-            onClick={() => void speakIn(PROMPT_LANG[direction], promptText)}
+            onClick={() => replay()}
             aria-busy={loadingAudio}
             aria-label={listenAndRecall ? "Écouter le mot russe" : "Écouter le mot français"}
             className="relative inline-flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-border px-3 py-2.5 font-display text-[13px] font-semibold text-text transition-colors hover:border-accent/35 hover:bg-accent/10 sm:gap-2 sm:px-5 sm:text-sm"
           >
-            {/* L'anneau est POSÉ SUR le bouton et ne le remplace pas : la
-                cible de clic garde sa taille pendant l'attente. */}
             {loadingAudio && (
               <span
                 aria-hidden
@@ -279,16 +365,12 @@ function VoiceInner() {
               />
             )}
             <SpeakerIcon className="h-4 w-4 shrink-0" />
-            {/* En dessous de 640 px, « Préparation… » ne tient pas : l'anneau
-                qui pulse dit déjà l'attente, le mot est donc superflu là. */}
             <span className="min-[360px]:hidden">Écouter</span>
             <span className="hidden min-[360px]:inline">
               {loadingAudio ? "Préparation…" : "Écouter"}
             </span>
           </button>
 
-          {/* Sans micro, « Écouter » prend toute la largeur plutôt que de
-              laisser une demi-carte vide à côté de lui. */}
           {micSupported && (
             <button
               onClick={listening ? stop : start}
@@ -304,9 +386,6 @@ function VoiceInner() {
                 "J’écoute…"
               ) : (
                 <>
-                  {/* La LANGUE reste dite dans les deux cas — c'est elle qui
-                      manquait à l'origine. Seul le verbe disparaît quand la
-                      place manque : la consigne au-dessus le porte déjà. */}
                   <span className="min-[360px]:hidden">{listenAndRecall ? "Français" : "Russe"}</span>
                   <span className="hidden min-[360px]:inline">
                     {listenAndRecall ? "Dire en français" : "Dire en russe"}
@@ -317,50 +396,52 @@ function VoiceInner() {
           )}
         </div>
 
-        {/* CE QUI A ÉTÉ ENTENDU, ET LA MAIN RENDUE À L'APPRENANT.
-            Le transcript s'affichait comme une remarque en passant, sans
-            suite : il fallait ensuite aller chercher « Révéler la réponse »
-            plus bas, comme si on n'avait rien dit. Il devient une étape —
-            on valide, ou on recommence.
+        {/* RÉÉCOUTER PLUS LENTEMENT. Un mot russe inconnu dit à vitesse
+            normale se perd en une syllabe ; le réentendre au même débit ne
+            l'éclaire pas davantage. */}
+        <button
+          type="button"
+          onClick={() => replay(0.7)}
+          className="mt-3 font-display text-xs font-semibold text-muted underline-offset-2 transition-colors hover:text-accent-ink hover:underline"
+        >
+          Réécouter lentement
+        </button>
 
-            LE RAPPROCHEMENT EST UN INDICE, PAS UNE NOTE. La reconnaissance
-            se trompe sur un accent, une syllabe avalée, un homophone ; lui
-            laisser le dernier mot noterait le micro et non l'apprenant.
-            C'est pour ça que « Valider » ne fait que RÉVÉLER : les quatre
-            boutons de qualité restent le seul jugement enregistré. */}
-        {transcript && !revealed && (
-          <div className="mt-4 rounded-xl border border-border bg-bg p-4">
+        {/* UN ÉCART OU UN DOUTE : on montre ce qui a été entendu, et la main
+            reste à l'apprenant — redire, ou voir la réponse. Une réponse
+            reconnue, elle, passe directement à la révélation. */}
+        {transcript && !shown && (
+          <div role="status" className="mt-4 rounded-xl border border-border bg-bg p-4">
             <p className="font-display text-sm text-muted">
               J&apos;ai entendu : <span className="font-semibold text-text">« {transcript} »</span>
             </p>
             <p
               className={`mt-1 font-display text-xs font-semibold ${
-                heardMatches ? "text-success" : "text-muted"
+                verdict === "close" ? "text-accent2" : "text-muted"
               }`}
             >
-              {heardMatches
-                ? "✓ Ça correspond à la réponse attendue."
-                : "Je ne retrouve pas la réponse attendue — mais je peux avoir mal entendu."}
+              {verdict === "close"
+                ? "Presque — il manque peu de chose. Redis-le, ou vérifie la réponse."
+                : "Ce n'est pas ce que j'attendais — mais j'ai pu mal entendre."}
             </p>
             <div className="mt-3 flex flex-wrap justify-center gap-2">
               <button
-                onClick={() => setRevealed(true)}
+                onClick={start}
                 className="btn btn-primary rounded-full px-5 py-2 font-display text-sm font-semibold"
               >
-                Valider
+                Redire
               </button>
               <button
-                onClick={start}
+                onClick={() => setRevealed(true)}
                 className="rounded-full border border-border px-5 py-2 font-display text-sm font-semibold text-text transition-colors hover:border-accent/35 hover:bg-accent/10"
               >
-                Redire
+                Voir la réponse
               </button>
             </div>
           </div>
         )}
 
-        {/* CE QUI A EMPÊCHÉ L'ÉCOUTE, ÉCRIT. Le micro qui refuse de démarrer
-            ne disait rien : le bouton s'allumait et restait allumé. */}
+        {/* CE QUI A EMPÊCHÉ L'ÉCOUTE, ÉCRIT. */}
         {micError && <p className="mt-3 font-display text-sm text-danger">{micError}</p>}
 
         {!micSupported && (
@@ -370,28 +451,41 @@ function VoiceInner() {
           </p>
         )}
 
-        {/* « Révéler la réponse » S'EFFACE DÈS QU'ON A PARLÉ : le « Valider »
-            de l'encadré ci-dessus fait exactement la même chose, et deux
-            boutons pour un seul geste font hésiter sur ce qui les distingue.
-            Il reste pour qui n'utilise pas le micro — ou n'en a pas. */}
-        {!revealed ? (
+        {!shown ? (
           !transcript && (
             <button
               onClick={() => setRevealed(true)}
-              className="btn btn-primary btn-sheen mt-8 w-full rounded-[10px] py-3 font-display text-sm"
+              className="btn btn-primary btn-sheen mt-6 w-full rounded-[10px] py-3 font-display text-sm"
             >
               Révéler la réponse
             </button>
           )
         ) : (
-          <div className="mt-6 rounded-xl border border-accent/40 bg-accent/10 p-4 text-left">
+          <div className="animate-fade-in mt-6 rounded-xl border border-accent/40 bg-accent/10 p-4 text-left">
+            {/* CE QU'ON A DIT RESTE À CÔTÉ DE LA RÉPONSE. Il disparaissait à la
+                révélation : on comparait de mémoire ce qu'on venait de
+                prononcer à ce qu'il fallait dire. */}
+            {transcript && (
+              <p
+                className={`mb-3 flex items-start gap-2 font-display text-sm font-semibold ${
+                  verdict === "match"
+                    ? "text-success"
+                    : verdict === "close"
+                      ? "text-accent2"
+                      : "text-muted"
+                }`}
+              >
+                <span aria-hidden>{verdict === "match" ? "✓" : verdict === "close" ? "≈" : "✗"}</span>
+                <span>
+                  Tu as dit « {transcript} »
+                  {verdict === "match" ? " — c'est bien ça." : verdict === "close" ? " — presque." : "."}
+                </span>
+              </p>
+            )}
             <div className="flex items-center gap-2">
-              <p className="font-display text-2xl font-bold text-accent-ink">{current.ru}</p>
-              {/* La prononciation russe vit ICI depuis qu'elle a quitté la
-                  rangée du haut : à côté de la réponse, une fois qu'elle est
-                  connue. C'est le moment où l'entendre sert à quelque chose. */}
+              <p className="font-display text-2xl font-bold text-accent-ink">{word.ru}</p>
               <button
-                onClick={() => void speakRu(current.ru)}
+                onClick={() => void speakRu(word.ru)}
                 aria-busy={loadingAudio}
                 aria-label="Écouter la prononciation russe"
                 title="Écouter la prononciation"
@@ -400,19 +494,11 @@ function VoiceInner() {
                 <SpeakerIcon className="h-4 w-4" />
               </button>
             </div>
-            <p className="font-display text-sm text-muted">{current.transliteration}</p>
-            {/* La consigne n'ayant jamais été écrite, elle s'affiche ICI :
-                sans elle on ne saurait pas ce qu'on vient de rater.
-
-                ET ELLE S'ÉCOUTE AUSSI. Le russe avait son haut-parleur
-                depuis que la prononciation a quitté la rangée du haut ; le
-                français n'en avait aucun, alors que dans le sens
-                « dis ce mot en russe » c'est LUI qu'on vient d'entendre en
-                consigne et qu'on peut vouloir réentendre après coup. */}
+            <p className="font-display text-sm text-muted">{word.transliteration}</p>
             <div className="mt-2 flex items-center gap-2">
-              <p className="font-display text-base">{current.fr}</p>
+              <p className="font-display text-base">{word.fr}</p>
               <button
-                onClick={() => void speakFr(current.fr)}
+                onClick={() => void speakFr(word.fr)}
                 aria-busy={loadingAudio}
                 aria-label="Écouter la prononciation française"
                 title="Écouter la prononciation"
@@ -421,49 +507,37 @@ function VoiceInner() {
                 <SpeakerIcon className="h-4 w-4" />
               </button>
             </div>
-            {current.example && (
+            {word.example && (
               <p className="mt-3 font-display text-sm text-muted">
-                {current.example.ru} <span className="italic">— {current.example.fr}</span>
+                {word.example.ru} <span className="italic">— {word.example.fr}</span>
               </p>
             )}
           </div>
         )}
       </div>
 
-      {/* Sous la carte, comme en mode Cartes : le mode est oral, mais une
-          fois le mot dit et révélé, savoir ce qu'il porte vaut autant
-          qu'ailleurs. */}
-      {revealed && <ReviewExplanation wordId={current.id} />}
+      {/* Sous la carte, comme en mode Cartes : une fois le mot dit et
+          révélé, savoir ce qu'il porte vaut autant qu'ailleurs. */}
+      {shown && <ReviewExplanation wordId={word.id} />}
 
-      {revealed && (
+      {shown && (
         <div className="mt-6 grid grid-cols-4 gap-1.5 sm:gap-2.5">
-          <QualityButton label="À revoir" color="var(--color-accent2-deep)" onClick={() => handleReview(1)} />
-          <QualityButton label="Difficile" color="var(--color-accent2)" onClick={() => handleReview(3)} />
-          <QualityButton label="Bien" color="var(--color-accent-ink)" onClick={() => handleReview(4)} />
-          <QualityButton label="Facile" color="var(--color-success)" onClick={() => handleReview(5)} />
+          {QUALITIES.map((q) => (
+            <QualityButton
+              key={q.value}
+              label={q.label}
+              color={q.color}
+              suggested={suggested === q.value}
+              onClick={() => handleReview(q.value)}
+            />
+          ))}
         </div>
       )}
-    </div>
-  );
-}
 
-function EmptyState() {
-  return (
-    <div className="mx-auto max-w-md px-6 py-14 sm:py-24 text-center">
-      <p className="font-display text-lg font-semibold">Aucun mot à réviser pour l&apos;instant</p>
-      <p className="mt-2 font-display text-sm text-muted">
-        Choisis des thèmes dans ton{" "}
-        <Link href="/account" className="text-accent-ink hover:underline">
-          profil
-        </Link>{" "}
-        pour obtenir des mots tout faits, ou crée ta propre liste.
+      <p className="mt-5 hidden text-center font-display text-[11px] text-muted/70 sm:block">
+        Clavier : {micSupported ? "Espace pour parler · Entrée pour révéler" : "Espace ou Entrée pour révéler"} · E
+        pour réécouter · 1 à 4 pour noter
       </p>
-      <Link
-        href="/vocabulary"
-        className="btn btn-primary btn-sheen mt-5 inline-block rounded-[10px] px-5 py-2.5 font-display text-sm"
-      >
-        Aller à mes listes
-      </Link>
     </div>
   );
 }
@@ -471,19 +545,26 @@ function EmptyState() {
 function QualityButton({
   label,
   color,
+  suggested,
   onClick,
 }: {
   label: string;
   color: string;
+  /** Cerclé : la note que ce qui a été entendu laisse attendre. */
+  suggested: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
       className="rounded-[10px] px-1 py-3 font-display text-[11px] font-semibold whitespace-nowrap text-on-tint transition-opacity hover:opacity-90 sm:text-xs"
-      style={{ background: color }}
+      style={{
+        background: color,
+        boxShadow: suggested ? `0 0 0 2px var(--color-bg), 0 0 0 4px ${color}` : undefined,
+      }}
     >
       {label}
+      {suggested && <span className="sr-only"> (suggéré)</span>}
     </button>
   );
 }

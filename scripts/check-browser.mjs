@@ -235,14 +235,17 @@ try {
         "voix : le bouton reste sur « J'écoute… » après une écoute sans résultat"
       );
 
-      // d. UNE RÉPONSE ENTENDUE OUVRE LA VALIDATION.
+      // d. UNE RÉPONSE FAUSSE LAISSE LA MAIN : ce qui a été entendu, redire,
+      //    ou voir la réponse. Un mot inventé, pour être sûr de ne tomber sur
+      //    aucun mot de la liste — une réponse reconnue, elle, se révèle
+      //    d'elle-même et n'afficherait pas ces boutons.
       await page.click("Dire en russe");
       await page.settle(700);
-      await page.evaluate('window.__dire("спасибо")');
+      await page.evaluate('window.__dire("абракадабра")');
       await page.settle(1500);
       const entendu = await page.text();
       require_(entendu.includes("J'ai entendu"), "voix : le transcript ne s'affiche pas");
-      require_(entendu.includes("Valider"), "voix : pas de bouton Valider après une réponse");
+      require_(entendu.includes("Voir la réponse"), "voix : pas de « Voir la réponse » après une réponse fausse");
       require_(entendu.includes("Redire"), "voix : pas de bouton Redire après une réponse");
 
       // e. LES DEUX COMMANDES RESTENT CÔTE À CÔTE — le défaut du repli.
