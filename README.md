@@ -365,6 +365,36 @@ licence **Creative Commons Attribution-ShareAlike 4.0**. Les données dérivées
 présentes dans `lib/grammar/nouns-data.generated.ts` restent sous cette
 licence : si l'app est distribuée, l'attribution doit être visible.
 
+## Lire les cas
+
+L'ancien module « Lecture » traduisait un mot au clic et colorait les noms
+selon leur cas. On voyait QUE « шко́ле » était au prépositionnel, jamais
+POURQUOI. Le module (toujours servi sur `/reading`, pour ne casser ni le
+sitemap ni les liens) est désormais bâti autour de cette question.
+
+- **Lire** : chaque mot décliné porte la couleur de son cas ; le toucher ouvre
+  son analyse — cas, nombre, forme du dictionnaire, raison du cas, traduction
+  de la phrase. La légende compte les cas du texte et filtre.
+- **Deviner les cas** : les couleurs s'effacent, on choisit le cas de chaque
+  mot souligné, l'explication suit la réponse. Seuls les tags vérifiés entrent
+  dans le quiz quand il y en a assez.
+
+La raison d'un cas vient de trois sources, de la plus sûre à la moins sûre,
+et l'écran dit toujours laquelle il montre :
+
+1. **écrite et relue à la main** pour les textes de la bibliothèque
+   (`lib/reading/texts.ts`) — `check:vocab` refuse un mot décliné sans
+   explication, une traduction manquante, un déclencheur absent de la phrase ;
+2. **calculée** quand le mot qui gouverne le cas est une préposition ou un mot
+   de quantité juste devant (`lib/reading/case-hints.ts`), gratuite — sa table
+   est confrontée par `check:vocab` à la banque des déclencheurs ;
+3. **rédigée par l'IA** à la demande, pour la phrase entière
+   (`app/api/reading/explain`, poste de quota `explain`). La réponse est
+   filtrée (`lib/reading/explanation.ts`) : explication en russe écartée,
+   déclencheur inventé retiré, désaccord avec le cas annoncé mis à part. Elle
+   est ensuite **gardée dans le texte** (`why` sur chaque mot, `sentenceFr` sur
+   le premier), sans table supplémentaire : rouvrir le texte n'appelle plus rien.
+
 ## Le test de placement
 
 `/onboarding` place l'apprenant sur l'échelle CECR. Deux principes, repris

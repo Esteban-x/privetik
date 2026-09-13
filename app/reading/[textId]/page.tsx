@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { READING_TEXTS, getReadingText } from "@/lib/reading/texts";
-import ReadingPassage from "@/components/exercises/ReadingPassage";
+import CaseReader from "@/components/exercises/CaseReader";
 
 export function generateStaticParams() {
   return READING_TEXTS.map((t) => ({ textId: t.id }));
@@ -53,7 +53,7 @@ export default async function ReadingTextPage({
         <h1 className="font-display text-3xl font-extrabold sm:text-4xl tracking-tight">{text.title}</h1>
       </div>
 
-      <ReadingPassage text={text} />
+      <CaseReader text={text} />
     </div>
   );
 }

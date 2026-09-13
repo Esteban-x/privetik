@@ -95,7 +95,7 @@ export default function PlanSettings({
                 </>
               ) : (
                 <>
-                  Exercices et révisions sans compteur, lecture générée,
+                  Exercices et révisions sans compteur, textes générés,
                   explications de mots : tout est ouvert.
                 </>
               )}
@@ -104,7 +104,7 @@ export default function PlanSettings({
             <ul className="mt-4 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {[
                 "Exercices et révisions sans compteur",
-                "Lecture générée à ton niveau",
+                "Textes générés pour travailler un cas",
                 "Explications de mots détaillées",
                 "Exercices de cas sur mesure",
                 "Prononciation illimitée",
@@ -176,7 +176,7 @@ export default function PlanSettings({
           <ul className="mt-4 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {[
               "Exercices et révisions sans compteur",
-              "Lecture générée à ton niveau",
+              "Textes générés pour travailler un cas",
               "Explications de mots détaillées",
               "Exercices de cas sur mesure",
               "Prononciation illimitée",

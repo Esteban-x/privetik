@@ -1,4 +1,4 @@
-import type { ReadingText } from "./texts";
+import type { CaseWhy, ReadingText } from "./texts";
 import type { ReadingLength, ReadingStyle } from "@/lib/ai/prompts";
 import type { CaseId } from "@/lib/grammar/types";
 import type { CefrLevel } from "@/lib/supabase/types";
@@ -39,6 +39,8 @@ export interface SavedReadingTextSummary {
   titleFr: string | null;
   level: CefrLevel;
   sentenceCount: number;
+  /** Nombre de mots annotés de chaque cas. */
+  caseCounts?: Partial<Record<CaseId, number>>;
   createdAt: string;
 }
 
@@ -52,4 +54,35 @@ export function fetchMyReadingText(id: string): Promise<{ text: ReadingText & { 
 
 export function deleteMyReadingText(id: string): Promise<{ ok: true }> {
   return fetch(`/api/reading/mine/${id}`, { method: "DELETE" }).then((r) => json(r));
+}
+
+/** Les cas d'une phrase, expliqués — voir app/api/reading/explain. */
+export interface SentenceCases {
+  translation: string | null;
+  /** Par position du mot dans la phrase (clé numérique sérialisée en chaîne). */
+  words: Record<string, CaseWhy>;
+  /** Vrai quand rien n'a été rédigé : explication relue à la main, ou déjà demandée. */
+  cached: boolean;
+}
+
+export function explainSentenceCases(textId: string, sentenceIndex: number): Promise<SentenceCases> {
+  return fetch("/api/reading/explain", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ textId, sentenceIndex }),
+  }).then((r) => json(r));
+}
+
+/** Enregistre la fin d'un texte, et le score du mode « Deviner les cas » s'il a été joué. */
+export function completeReadingText(params: {
+  textId: string;
+  level: string;
+  found?: number;
+  total?: number;
+}): Promise<{ ok: true }> {
+  return fetch("/api/reading/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  }).then((r) => json(r));
 }

@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   title: "Prix et abonnement du cours de russe",
   description:
     "Le cours, l'alphabet et les tables sont gratuits. L'abonnement lève le compteur quotidien " +
-    "d'exercices et ouvre la lecture générée. 16,99 €/mois.",
+    "d'exercices et ouvre les textes générés pour travailler un cas. 16,99 €/mois.",
   alternates: { canonical: "/premium" },
   openGraph: {
     type: "website",

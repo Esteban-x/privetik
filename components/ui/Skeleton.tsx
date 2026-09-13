@@ -38,17 +38,3 @@ export function SkeletonLines({
     </div>
   );
 }
-
-/** Grille de cartes "liste" factices (page /vocabulary). */
-export function ListCardsSkeleton({ cards = 4 }: { cards?: number }) {
-  return (
-    <div className="animate-fade-in grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {Array.from({ length: cards }).map((_, i) => (
-        <div key={i} className="rounded-2xl surface p-5">
-          <div className="skeleton h-5 w-2/3 rounded-lg" />
-          <div className="skeleton mt-2.5 h-3.5 w-1/4 rounded-full" />
-        </div>
-      ))}
-    </div>
-  );
-}

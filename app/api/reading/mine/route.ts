@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { countCases } from "@/lib/reading/stats";
 
 // Liste des textes de lecture générés par l'IA et sauvegardés par
 // l'utilisateur (voir POST /api/ai/reading) — pour la section "Mes textes"
@@ -24,6 +25,10 @@ export async function GET() {
     titleFr: t.title_fr,
     level: t.level,
     sentenceCount: Array.isArray(t.sentences) ? t.sentences.length : 0,
+    // Les cas que le texte travaille, comptés ici : les phrases sont déjà
+    // lues, et les renvoyer entières pour une carte serait les faire voyager
+    // pour rien.
+    caseCounts: countCases(t.sentences),
     createdAt: t.created_at,
   }));
 

@@ -306,7 +306,7 @@ export default async function DashboardPage() {
         <QuickLink href="/cours" title="Cours" desc="La règle, expliquée" />
         <QuickLink href="/exercices" title="Exercices" desc="Huit modules" />
         <QuickLink href="/vocabulary/review" title="Vocabulaire" desc="Révision espacée" />
-        <QuickLink href="/reading" title="Lecture" desc="Textes gradués" />
+        <QuickLink href="/reading" title="Lire les cas" desc="Textes annotés" />
       </div>
     </div>
   );

@@ -321,17 +321,70 @@ IMPORTANT — droit d'auteur :
 - Écris un texte 100% original. Ne reproduis JAMAIS d'extrait d'œuvre existante sous droit d'auteur.
 - Tu ne dois pas prétendre citer un livre réel. Ce texte est un contenu pédagogique original.
 
-Fournis aussi, pour CHAQUE mot russe, une glose mot-à-mot ET le cas grammatical qu'il porte :
+Ce texte sert à COMPRENDRE LES CAS : l'apprenant touche chaque mot décliné pour savoir à quel cas
+il est, et pourquoi. Fournis donc, pour CHAQUE mot russe, une glose mot-à-mot ET le cas qu'il porte :
+- "gloss" : la traduction du mot seul, en français, sans le nom du cas entre parenthèses.
 - "case" vaut l'une de ces valeurs EXACTES : "nominative", "genitive", "dative", "accusative",
-  "instrumental", "prepositional" — UNIQUEMENT pour un nom/adjectif/pronom/numéral qui porte
-  visiblement une marque de cas dans cette phrase précise (pas le nominatif "par défaut" d'un
-  sujet neutre : ne tague le nominatif QUE si ça aide à voir un contraste, par exemple un attribut
-  après "быть"). Omets "case" (ne mets pas le champ, ou mets null) pour les verbes, adverbes,
-  conjonctions, prépositions, la ponctuation, et tout mot invariable.
+  "instrumental", "prepositional" — pour CHAQUE nom, adjectif, pronom personnel ou possessif
+  décliné, y compris le nominatif d'un sujet. Omets "case" (ne mets pas le champ, ou mets null)
+  pour les verbes, adverbes (même d'origine nominale : "летом", "утром", "домой"), conjonctions,
+  prépositions, numéraux, la ponctuation et tout mot invariable.
 - Ne devine JAMAIS un cas dont tu n'es pas sûr — mieux vaut omettre "case" qu'en donner un faux.
 
 Réponds UNIQUEMENT avec un JSON valide de la forme :
 {"title":"titre en russe","title_fr":"titre en français","level":"${level}",
  "sentences":[[{"ru":"mot","gloss":"traduction ou null pour la ponctuation","case":"genitive ou null"}, ...], ...],
  "summary_fr":"résumé en 1 phrase française"}`;
+}
+
+// ─── Pourquoi ces cas ? — les mots déclinés d'une phrase de lecture ──
+// Du COMMENTAIRE sur une analyse déjà posée : le cas de chaque mot est
+// annoncé par le texte (et vérifié contre la banque quand elle connaît la
+// forme). Le modèle dit POURQUOI ; s'il lit un autre cas, il le dit aussi, et
+// lib/reading/explanation.ts met sa justification de côté plutôt que de lui
+// faire défendre un cas qu'il croit faux.
+export function readingCasesPrompt(input: {
+  sentence: string;
+  words: { index: number; ru: string; gloss: string; case: CaseId }[];
+  level: string;
+}) {
+  const list = input.words
+    .map((w) => {
+      const info = CASES.find((c) => c.id === w.case);
+      return `- position ${w.index} : « ${w.ru} »${w.gloss ? ` (${w.gloss})` : ""} → ${info?.nameFr ?? w.case}`;
+    })
+    .join("\n");
+
+  return `Tu es un professeur de russe qui enseigne à des francophones de niveau ${input.level}.
+
+Phrase russe tirée d'un texte de lecture :
+"${input.sentence}"
+
+Mots de cette phrase qui portent un cas, avec leur position et le cas annoncé :
+${list}
+
+Pour CHACUN de ces mots, explique POURQUOI il est à ce cas dans CETTE phrase.
+
+TU ÉCRIS EN FRANÇAIS. L'apprenant ne lit pas encore le russe : le russe n'apparaît que CITÉ, entre
+guillemets, pour désigner un mot. Une explication rédigée en russe est inutilisable.
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour :
+{"translation":"...","words":[{"index":0,"lemma":"...","case":"...","number":"singular","trigger":"...","reason":"..."}]}
+
+Consignes :
+- "translation" : la traduction française, fidèle et naturelle, de la phrase entière.
+- "index" : la position donnée ci-dessus, recopiée telle quelle. Un objet par mot de la liste.
+- "lemma" : la forme du dictionnaire, en cyrillique (nominatif singulier ; forme de base pour un
+  adjectif ou un pronom : "новый", "мой", "я").
+- "case" : le cas que TU lis dans cette phrase, parmi "nominative", "genitive", "dative",
+  "accusative", "instrumental", "prepositional". S'il diffère du cas annoncé, donne le tien : ne
+  justifie jamais un cas que tu crois faux.
+- "number" : "singular" ou "plural".
+- "trigger" : le mot de la phrase qui impose ce cas (préposition, verbe, nombre, "нет"…), recopié
+  exactement comme il est écrit dans la phrase ; "" si c'est la fonction du mot qui décide (sujet,
+  complément d'objet direct, complément du nom, accord avec un autre mot).
+- "reason" : une ou deux phrases, trente-cinq mots au plus. Dis ce qui impose le cas et ce qu'il
+  exprime ici (lieu où l'on est, direction, possession, quantité, destinataire, moyen, accord…).
+  Pour un adjectif ou un possessif, dis avec quel nom il s'accorde. Ne répète pas la traduction du
+  mot. N'invente aucune règle : en cas de doute, dis seulement la fonction du mot dans la phrase.`;
 }

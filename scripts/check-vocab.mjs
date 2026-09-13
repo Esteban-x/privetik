@@ -33,7 +33,10 @@ const { nearMiss } = await jiti.import("../lib/vocabulary/autocomplete.ts");
 const { accentRu, hasStress, stripStress } = await jiti.import("../lib/vocabulary/accent.ts");
 const { isFrenchProse } = await jiti.import("../lib/ai/client.ts");
 const P = await jiti.import("../lib/ai/prompts.ts");
-const { ANSWER_LANG, PROMPT_LANG, RECOGNITION_ERRORS, MAX_LISTEN_MS, END_GRACE_MS } = await jiti.import("../lib/vocabulary/speech.ts");
+const { ANSWER_LANG, PROMPT_LANG, RECOGNITION_ERRORS, MAX_LISTEN_MS, END_GRACE_MS, MAX_ALTERNATIVES } = await jiti.import("../lib/vocabulary/speech.ts");
+const H = await jiti.import("../lib/reading/case-hints.ts");
+const X = await jiti.import("../lib/reading/explanation.ts");
+const { TRIGGERS } = await jiti.import("../lib/grammar/triggers.ts");
 
 const failures = [];
 let checks = 0;
@@ -632,6 +635,222 @@ require_(
     transliterate(accentRu("хорошо")) === "kharacho",
     `accent : « хорошо » accentué devrait se lire « kharacho », reçu « ${transliterate(accentRu("хорошо"))} »`
   );
+}
+
+// ─── 10. La réponse dite à voix haute ─────────────────────────────
+//
+// Le mode Voix compare TOUTES les lectures du moteur à la réponse, et en
+// tire un indice à trois états. Trop strict, il déclare fausse une réponse
+// juste que le micro a ponctuée ; trop laxiste, il révèle d'office une
+// réponse fausse — la révélation automatique ne part que sur « match ».
+{
+  const MATCH = [
+    [["Книга."], "кни́га"],
+    [["Книга"], "книга"],
+    [["это книга"], "книга"],
+    [["книгу", "книга"], "книга"],
+    [["Le livre."], "livre"],
+    [["c'est un livre"], "livre"],
+    [["voiture"], "voiture, auto"],
+    [["Спасибо!"], "спаси́бо"],
+  ];
+  for (const [heard, expected] of MATCH) {
+    require_(
+      A.judgeSpoken(heard, expected) === "match",
+      `voix : ${JSON.stringify(heard)} devrait correspondre à « ${expected} » (reçu ${A.judgeSpoken(heard, expected)})`
+    );
+  }
+
+  const CLOSE = [
+    [["книгу"], "книга"],
+    [["livres"], "livre"],
+    [["университета"], "университет"],
+  ];
+  for (const [heard, expected] of CLOSE) {
+    require_(
+      A.judgeSpoken(heard, expected) === "close",
+      `voix : ${JSON.stringify(heard)} est à une lettre de « ${expected} » (reçu ${A.judgeSpoken(heard, expected)})`
+    );
+  }
+
+  const MISS = [
+    [["стол"], "книга"],
+    [[""], "книга"],
+    [[], "книга"],
+    [["le chat"], "livre"],
+    // Un mot de deux lettres ne se « retrouve » pas dans une phrase : « в »
+    // ou « de » sont au milieu de n'importe quelle réponse.
+    [["je ne sais pas"], "ne"],
+    // Pas de tolérance sur un mot court : « дом » et « дым » sont deux mots.
+    [["дым"], "дом"],
+  ];
+  for (const [heard, expected] of MISS) {
+    require_(
+      A.judgeSpoken(heard, expected) === "miss",
+      `voix : ${JSON.stringify(heard)} ne doit pas passer pour « ${expected} » (reçu ${A.judgeSpoken(heard, expected)})`
+    );
+  }
+
+  require_(
+    MAX_ALTERNATIVES >= 3 && MAX_ALTERNATIVES <= 10,
+    `micro : ${MAX_ALTERNATIVES} lectures demandées au moteur — une seule ratait les réponses entendues en second`
+  );
+}
+
+// ─── 11. « Pourquoi ce cas ? » — la règle avant le modèle ─────────
+{
+  // a. LA TABLE DU LECTEUR ET LA BANQUE DES DÉCLENCHEURS DISENT LA MÊME
+  //    CHOSE. Le lecteur ne peut pas importer triggers.ts (composant
+  //    client) : sa table est recopiée, donc elle peut diverger. Toute
+  //    préposition d'un seul mot de la banque doit y figurer avec son cas.
+  for (const t of TRIGGERS) {
+    if (t.kind !== "preposition" || /\s/.test(t.ru.trim())) continue;
+    const folded = H.foldWord(t.ru);
+    require_(
+      Boolean(H.PREPOSITION_CASES[folded]?.[t.caseId]),
+      `indice de cas : « ${t.ru} » + ${t.caseId} est dans la banque des déclencheurs, pas dans la table du lecteur`
+    );
+  }
+
+  const words = (spec) =>
+    spec.split(" ").map((token) => {
+      const [ru, kase] = token.split("/");
+      return kase ? { ru, gloss: "x", case: kase } : { ru, gloss: "x" };
+    });
+
+  // b. Ce qu'il doit trouver — adjectif accordé enjambé compris.
+  const FOUND = [
+    ["Я живу в школе./prepositional", 3, "в"],
+    ["Я иду в школу./accusative", 3, "в"],
+    ["Он живёт в нашей/prepositional школе/prepositional", 4, "в"],
+    ["Я иду со другом/instrumental", 3, "со"],
+    // Le mot devant n'est ni préposition ni quantité : rien à dire.
+    ["Я доволен новым/x другом/instrumental", 3, null],
+    ["В магазине много людей/genitive", 3, "много"],
+    ["У нас/genitive нет интернета,/genitive", 3, "нет"],
+    ["Мне 20 лет/genitive", 2, "20"],
+    ["Кни́га на столе́/prepositional", 2, "на"],
+  ];
+  for (const [spec, index, trigger] of FOUND) {
+    const hint = H.caseHint(words(spec), index);
+    require_(
+      trigger === null ? hint === null : hint?.trigger === trigger,
+      `indice de cas : « ${spec} » (mot ${index}) — attendu ${trigger === null ? "aucun" : `« ${trigger} »`}, reçu ${hint ? `« ${hint.trigger} »` : "aucun"}`
+    );
+  }
+
+  // c. CE QU'IL NE DOIT PAS INVENTER : une préposition qui ne régit pas ce
+  //    cas, ou un cas sans préposition devant.
+  const SILENT = [
+    ["Я иду в школе/dative", 3],
+    ["Мама читает книгу/accusative", 2],
+    ["Отец/nominative работает", 0],
+  ];
+  for (const [spec, index] of SILENT) {
+    require_(
+      H.caseHint(words(spec), index) === null,
+      `indice de cas : « ${spec} » (mot ${index}) ne doit donner aucun indice`
+    );
+  }
+}
+
+// ─── 12. Les textes de la bibliothèque s'expliquent ───────────────
+//
+// Le module ne sert plus à traduire mais à comprendre les cas : un mot
+// décliné sans explication y est un trou. Les explications sont écrites à la
+// main — elles ne passent par aucune validation d'IA, donc elles passent ici.
+for (const text of T.READING_TEXTS) {
+  text.sentences.forEach((sentence, s) => {
+    const first = sentence[0];
+    require_(
+      typeof first?.sentenceFr === "string" && A.normalizeAnswer(first.sentenceFr).length > 0 && isFrenchProse(first.sentenceFr),
+      `texte « ${text.title} », phrase ${s + 1} : traduction absente ou pas en français`
+    );
+    const present = new Set(sentence.map((w) => H.foldWord(w.ru)));
+    sentence.forEach((word, i) => {
+      if (!word.case) return;
+      const label = `texte « ${text.title} », « ${word.ru} »`;
+      require_(Boolean(word.why), `${label} : mot décliné sans explication`);
+      if (!word.why) return;
+      require_(word.why.source === "reviewed", `${label} : explication de la bibliothèque non marquée « relue »`);
+      require_(isFrenchProse(word.why.reason) && word.why.reason.length >= 20, `${label} : explication trop courte ou pas en français`);
+      require_(!word.why.disputed, `${label} : une explication relue ne peut pas contester son propre cas`);
+      if (word.why.trigger) {
+        require_(
+          word.why.trigger.split(" ").every((part) => present.has(H.foldWord(part))),
+          `${label} : le déclencheur « ${word.why.trigger} » n'est pas dans la phrase`
+        );
+      }
+      // Quand la règle sait dire quelque chose, elle doit désigner le même
+      // mot que l'explication écrite — sinon l'une des deux se trompe.
+      const hint = H.caseHint(sentence, i);
+      if (hint && word.why.trigger) {
+        require_(
+          H.foldWord(hint.trigger) === H.foldWord(word.why.trigger),
+          `${label} : la règle désigne « ${hint.trigger} », l'explication « ${word.why.trigger} »`
+        );
+      }
+    });
+  });
+}
+
+// ─── 13. L'explication de l'IA : ce qu'on en garde ────────────────
+{
+  const sentence = [
+    { ru: "Я", gloss: "je", case: "nominative" },
+    { ru: "иду", gloss: "vais" },
+    { ru: "в", gloss: "dans" },
+    { ru: "школу.", gloss: "école", case: "accusative", caseStatus: "confirmed" },
+  ];
+
+  const ok = X.toSentenceExplanation(
+    {
+      translation: "Je vais à l'école.",
+      words: [
+        { index: 0, lemma: "я", case: "nominative", number: "singular", trigger: "", reason: "« Я » est le sujet du verbe « иду », donc au nominatif." },
+        { index: 3, lemma: "школа", case: "accusative", number: "singular", trigger: "в", reason: "Avec un verbe de mouvement, « в » est suivi de l'accusatif : il indique la direction." },
+      ],
+    },
+    sentence
+  );
+  require_(ok !== null && ok.translation === "Je vais à l'école.", "explication IA : une réponse bien formée doit être acceptée");
+  require_(ok?.words[3]?.trigger === "в" && ok?.words[3]?.lemma === "школа", "explication IA : déclencheur et lemme valides doivent être gardés");
+  require_(ok?.words[3]?.source === "ai", "explication IA : doit être marquée comme rédigée par l'IA");
+
+  const hostile = X.toSentenceExplanation(
+    {
+      translation: "Я иду в школу.",
+      words: [
+        // Un mot SANS cas dans le texte : rien à expliquer.
+        { index: 1, case: "accusative", reason: "Le verbe est ici à l'accusatif, ce qui est une invention." },
+        // Une explication en russe : inutilisable.
+        { index: 0, case: "nominative", reason: "Это подлежащее, поэтому именительный падеж." },
+        // Un autre cas que l'annotation, et un déclencheur absent de la phrase.
+        { index: 3, case: "prepositional", trigger: "на", reason: "Après « на », le prépositionnel indique le lieu où l'on se trouve." },
+        // Une position hors de la phrase.
+        { index: 9, case: "genitive", reason: "Une position qui n'existe pas dans cette phrase russe." },
+      ],
+    },
+    sentence
+  );
+  require_(hostile !== null, "explication IA : une réponse partiellement valable garde ce qui l'est");
+  require_(hostile?.translation === null, "explication IA : une traduction en russe doit être écartée");
+  require_(!hostile?.words[1], "explication IA : un mot sans cas ne reçoit pas d'explication");
+  require_(!hostile?.words[0], "explication IA : une explication rédigée en russe doit être écartée");
+  require_(!hostile?.words[9], "explication IA : une position hors de la phrase doit être ignorée");
+  require_(hostile?.words[3]?.disputed === "prepositional", "explication IA : un désaccord sur le cas doit être marqué comme tel");
+  require_(hostile?.words[3]?.trigger === undefined, "explication IA : un déclencheur absent de la phrase doit être retiré");
+
+  require_(X.toSentenceExplanation({}, sentence) === null, "explication IA : une réponse vide doit être refusée");
+  require_(X.toSentenceExplanation("texte", sentence) === null, "explication IA : une réponse non-objet doit être refusée");
+
+  // Le prompt porte bien la phrase et chaque mot à expliquer, avec sa position.
+  const prompt = P.readingCasesPrompt({
+    sentence: "Я иду в школу.",
+    words: [{ index: 3, ru: "школу.", gloss: "école", case: "accusative" }],
+    level: "A2",
+  });
+  require_(prompt.includes("Я иду в школу.") && prompt.includes("position 3") && prompt.includes("Accusatif"), "prompt des cas : la phrase, la position ou le cas annoncé manque");
 }
 
 // ─── Rapport ───────────────────────────────────────────────────────

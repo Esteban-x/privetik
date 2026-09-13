@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/api/validate";
-import ReadingPassage from "@/components/exercises/ReadingPassage";
+import CaseReader from "@/components/exercises/CaseReader";
 import DeleteReadingTextButton from "@/components/exercises/DeleteReadingTextButton";
 import type { ReadingText } from "@/lib/reading/texts";
 
@@ -40,7 +40,7 @@ export default async function MyReadingTextPage({
 
   const { data } = await supabase
     .from("reading_texts")
-    .select("id, title, level, sentences")
+    .select("id, title, title_fr, level, sentences")
     .eq("id", id)
     .eq("user_id", user.id)
     .single();
@@ -65,14 +65,19 @@ export default async function MyReadingTextPage({
         <DeleteReadingTextButton id={text.id} />
       </div>
 
-      <div className="mb-8 flex items-center gap-3">
-        <span className="rounded-full border border-border px-2.5 py-0.5 font-display text-xs font-semibold text-muted">
-          {text.level}
-        </span>
-        <h1 className="font-display text-3xl font-extrabold sm:text-4xl tracking-tight">{text.title}</h1>
+      <div className="mb-8">
+        <div className="flex items-center gap-3">
+          <span className="rounded-full border border-border px-2.5 py-0.5 font-display text-xs font-semibold text-muted">
+            {text.level}
+          </span>
+          <h1 className="font-display text-3xl font-extrabold sm:text-4xl tracking-tight">{text.title}</h1>
+        </div>
+        {data.title_fr && (
+          <p className="mt-2 font-display text-sm text-muted">{data.title_fr}</p>
+        )}
       </div>
 
-      <ReadingPassage text={text} />
+      <CaseReader text={text} />
     </div>
   );
 }

@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { ReadingText } from "@/lib/reading/texts";
-import ReadingPassage from "./ReadingPassage";
+import CaseReader from "./CaseReader";
 import { LoadingDots, SkeletonLines } from "@/components/ui/Skeleton";
 import Select from "@/components/ui/Select";
 import { generateReadingText, type GenerateReadingOptions } from "@/lib/reading/client";
-import { CASES } from "@/lib/grammar/cases";
+import { CASES_BY_LEARNING_ORDER } from "@/lib/grammar/cases";
 import { READING_LEVELS, type CefrLevel } from "@/lib/supabase/types";
 import type { ReadingLength, ReadingStyle } from "@/lib/ai/prompts";
 import type { CaseId } from "@/lib/grammar/types";
@@ -25,6 +25,15 @@ const STYLE_OPTIONS: { value: ReadingStyle; label: string }[] = [
   { value: "description", label: "Description" },
 ];
 
+/**
+ * Générer un texte pour travailler un cas.
+ *
+ * LE CAS EST LA PREMIÈRE QUESTION, PLUS UNE OPTION CACHÉE. Il vivait dans le
+ * panneau « Options », sous le niveau, la longueur et la forme : le réglage
+ * qui fait l'intérêt du module était le dernier qu'on voyait, et le plus
+ * souvent jamais. Il est maintenant à découvert ; le reste, qu'on règle une
+ * fois, reste replié.
+ */
 export default function AiReadingGenerator({
   onGenerated,
 }: {
@@ -57,9 +66,9 @@ export default function AiReadingGenerator({
       if (level) options.level = level;
       if (focusCase) options.focusCase = focusCase;
       const { text: generated, id } = await generateReadingText(options);
-      // L'id validé côté client vaut toujours "ai-generated"(placeholder) —
-      // remplacé par le vrai id sauvegardé en base dès qu'on l'a, pour que
-      // "J'ai terminé ce texte"(ReadingPassage) logue le bon texte.
+      // L'id validé côté client vaut toujours "ai-generated" (placeholder) —
+      // remplacé par le vrai id sauvegardé en base dès qu'on l'a : c'est lui
+      // que la fin de texte et les explications de l'IA transmettent.
       setText(id ? { ...generated, id } : generated);
       if (id) onGenerated?.(id);
     } catch (err) {
@@ -79,16 +88,17 @@ export default function AiReadingGenerator({
 
   return (
     <div className="rounded-[20px] border border-dashed border-accent/50 bg-accent/5 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h3 className="font-display text-lg font-bold">Texte sur mesure</h3>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h3 className="font-display text-lg font-bold">Un texte pour travailler un cas</h3>
           <p className="mt-0.5 font-display text-sm text-muted">
-            Un texte original généré pour ton niveau et tes thèmes.
+            Écrit à ton niveau et annoté mot à mot : chaque phrase s&apos;explique d&apos;un geste.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setOptionsOpen((v) => !v)}
+            aria-expanded={optionsOpen}
             className={`rounded-[10px] cursor-pointer border px-4 py-3 font-display text-sm font-semibold transition-colors ${
               optionsOpen
                 ? "border-accent bg-accent/10 text-accent-ink"
@@ -104,6 +114,44 @@ export default function AiReadingGenerator({
           >
             {loading ? "Génération…" : "Générer un texte"}
           </button>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-2 font-display text-xs font-semibold uppercase tracking-wide text-muted">
+          Cas à travailler
+        </p>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Cas à travailler">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={focusCase === ""}
+            onClick={() => setFocusCase("")}
+            className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
+              focusCase === ""
+                ? "border-accent bg-accent/10 text-accent-ink"
+                : "border-border text-muted hover:text-text"
+            }`}
+          >
+            Tous (varié)
+          </button>
+          {CASES_BY_LEARNING_ORDER.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              role="radio"
+              aria-checked={focusCase === c.id}
+              onClick={() => setFocusCase(c.id)}
+              className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
+                focusCase === c.id ? "text-white" : "border-border text-muted hover:text-text"
+              }`}
+              style={
+                focusCase === c.id ? { backgroundColor: c.color, borderColor: c.color } : undefined
+              }
+            >
+              {c.nameFr}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -158,44 +206,6 @@ export default function AiReadingGenerator({
               options={STYLE_OPTIONS}
             />
           </div>
-
-          <div className="sm:col-span-3">
-            <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
-              Cas grammatical à mettre en avant
-            </label>
-            <p className="mb-2 font-display text-xs text-muted">
-              Le texte réutilisera ce cas plus souvent que d&apos;habitude — pratique pour
-              t&apos;entraîner à le reconnaître en contexte (voir la coloration pendant la lecture).
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                onClick={() => setFocusCase("")}
-                className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
-                  focusCase === ""
-                    ? "border-accent bg-accent/10 text-accent-ink"
-                    : "border-border text-muted hover:text-text"
-                }`}
-              >
-                Aucun (varié)
-              </button>
-              {CASES.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setFocusCase(c.id)}
-                  className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
-                    focusCase === c.id ? "text-white" : "border-border text-muted hover:text-text"
-                  }`}
-                  style={
-                    focusCase === c.id
-                      ? { backgroundColor: c.color, borderColor: c.color }
-                      : undefined
-                  }
-                >
-                  {c.nameFr}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
@@ -204,7 +214,7 @@ export default function AiReadingGenerator({
           <PaywallNotice
             quota={blocked.quota}
             message={blocked.message}
-            what="la lecture générée"
+            what="les textes générés"
           />
         </div>
       )}
@@ -213,7 +223,7 @@ export default function AiReadingGenerator({
       {loading && (
         <div className="mt-6 animate-fade-in">
           <div className="mb-4">
-            <LoadingDots label="Rédaction d'un texte original…" />
+            <LoadingDots label="Rédaction et annotation du texte…" />
           </div>
           <div className="mb-3 flex items-center gap-2">
             <div className="skeleton h-5 w-12 rounded-full" />
@@ -253,7 +263,7 @@ export default function AiReadingGenerator({
             </span>
             <h4 className="font-display text-xl font-bold">{text.title}</h4>
           </div>
-          <ReadingPassage
+          <CaseReader
             text={text}
             onCompleted={() => {
               setCompletedTitle(text.title);

@@ -48,7 +48,7 @@ function promiseFor(next: string | null): string | null {
     return "Tes mots, révisés au bon moment : cartes, QCM, frappe et prononciation, avec une répétition espacée qui décide seule quoi te remontrer et quand.";
   }
   if (next.startsWith("/reading")) {
-    return "Des textes courts à ton niveau, générés à la demande — clique sur n'importe quel mot pour sa traduction, sans quitter la page.";
+    return "Des textes où chaque mot décliné dit son cas, et pourquoi — avec l'explication de l'IA pour chaque phrase, et un mode pour deviner les cas.";
   }
   if (next.startsWith("/dashboard")) {
     return "Ta série, ton niveau et ta précision par compétence, mis à jour à chaque exercice.";

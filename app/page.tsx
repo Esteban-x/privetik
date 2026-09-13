@@ -249,10 +249,10 @@ export default function Home() {
           />
           <ModuleCard
             href="/reading"
-            glyph="Ч"
-            title="Чтение"
-            subtitle="La lecture"
-            description="Des textes écrits à ton niveau. Clique un mot : tu as sa traduction et son cas, sans quitter la page."
+            glyph="П"
+            title="Падежи"
+            subtitle="Lire les cas"
+            description="Des textes où chaque mot décliné dit son cas. Touche-le : tu sais pourquoi il est à ce cas, et tu t'entraînes à les deviner."
           />
         </div>
       </section>
