@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addWord,
   isDuplicateWordError,
@@ -14,16 +14,23 @@ import {
   fetchLists,
   renameList,
   setWordFocus,
+  updateWord,
   type CustomVocabWord,
   type VocabListSummary,
+  type WordInput,
 } from "@/lib/vocabulary/custom";
 import { countFocus, FOCUS_META, type Focus } from "@/lib/vocabulary/focus";
 import AddWordForm from "@/components/vocabulary/AddWordForm";
+import EditWordForm, { type EditOutcome } from "@/components/vocabulary/EditWordForm";
 import ListRail, { ListTile } from "@/components/vocabulary/ListRail";
 import WordCard from "@/components/vocabulary/WordCard";
 import { ModeIcon, REVIEW_MODES } from "@/components/vocabulary/ReviewModeGrid";
+import {
+  ListRailSkeleton,
+  WordRowsSkeleton,
+  WordToolbarSkeleton,
+} from "@/components/vocabulary/VocabularySkeletons";
 import { PlusIcon, TrashIcon } from "@/components/ui/icons";
-import { ListRowsSkeleton } from "@/components/ui/Skeleton";
 import Modal from "@/components/ui/Modal";
 import Dropdown from "@/components/ui/Dropdown";
 import { loadLastVocabList, saveLastVocabList } from "@/lib/storage";
@@ -73,8 +80,32 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
   const [filter, setFilter] = useState<Filter>("all");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  /** Le mot dont la feuille de modification est ouverte. */
+  const [editing, setEditing] = useState<CustomVocabWord | null>(null);
+
+  // UN CHARGEMENT QUI ÉCHOUE DOIT POUVOIR SE REJOUER. Les deux requêtes
+  // laissaient leur état à `null` en cas d'échec : le squelette tournait
+  // indéfiniment sous un bandeau rouge, sans rien pour réessayer. Le
+  // compteur de tentatives relance l'effet, l'indicateur remplace le
+  // squelette par un message.
+  const [listsFailed, setListsFailed] = useState(false);
+  const [listsAttempt, setListsAttempt] = useState(0);
+  const [wordsFailed, setWordsFailed] = useState(false);
+  const [wordsAttempt, setWordsAttempt] = useState(0);
 
   const activeList = lists?.find((l) => l.id === activeId) ?? null;
+
+  /**
+   * La liste ouverte AU MOMENT OÙ une requête répond.
+   *
+   * Une suppression qui échoue remet le mot à sa place — mais seulement si
+   * l'on est toujours dans la même liste : restaurer les mots de « Voyage »
+   * par-dessus « Cuisine », ouverte entre-temps, serait pire que l'échec.
+   */
+  const activeRef = useRef(activeId);
+  useEffect(() => {
+    activeRef.current = activeId;
+  });
 
   /**
    * UNE NAVIGATION VERS /vocabulary REMET LES LISTES DEVANT.
@@ -140,8 +171,18 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
           return [...d.lists].sort((a, b) => b.dueCount - a.dueCount)[0].id;
         });
       })
-      .catch(() => setError("Impossible de charger tes listes."));
-  }, []);
+      .catch(() => setListsFailed(true));
+  }, [listsAttempt]);
+
+  function retryLists() {
+    setListsFailed(false);
+    setListsAttempt((n) => n + 1);
+  }
+
+  function retryWords() {
+    setWordsFailed(false);
+    setWordsAttempt((n) => n + 1);
+  }
 
   // Chargement des mots de la liste ouverte. Le reset se fait pendant le
   // rendu (comparaison au dernier id vu) plutôt que dans l'effet, pour ne
@@ -155,6 +196,8 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
     setEditingName(false);
     setConfirmingDelete(false);
     setShowAdd(false);
+    setEditing(null);
+    setWordsFailed(false);
   }
 
   useEffect(() => {
@@ -166,11 +209,13 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
         setNameDraft(d.list.name);
         setWords(d.words);
       })
-      .catch(() => !cancelled && setError("Liste introuvable."));
+      .catch(() => {
+        if (!cancelled) setWordsFailed(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [activeId]);
+  }, [activeId, wordsAttempt]);
 
   // L'URL suit la sélection sans provoquer de navigation : `replaceState`
   // plutôt que router.replace, qui remonterait jusqu'au serveur pour un
@@ -284,11 +329,20 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
       setEditingName(false);
       return;
     }
-    setLists((prev) => (prev ? prev.map((l) => (l.id === activeId ? { ...l, name } : l)) : prev));
+    const id = activeId;
+    const previousName = activeList?.name;
+    setLists((prev) => (prev ? prev.map((l) => (l.id === id ? { ...l, name } : l)) : prev));
     setEditingName(false);
     try {
-      await renameList(activeId, name);
+      await renameList(id, name);
     } catch {
+      // L'ancien nom revient : le nouveau n'a pas été enregistré, et il
+      // disparaîtrait de lui-même au prochain chargement.
+      if (previousName) {
+        setLists((prev) =>
+          prev ? prev.map((l) => (l.id === id ? { ...l, name: previousName } : l)) : prev
+        );
+      }
       setError("Le renommage a échoué.");
     }
   }
@@ -332,13 +386,49 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
   }
 
   async function removeWord(wordId: string) {
+    const listId = activeId;
+    const previous = words;
     const next = (words ?? []).filter((w) => w.id !== wordId);
     setWords(next);
-    if (activeId) syncCounts(activeId, next);
+    if (listId) syncCounts(listId, next);
     try {
       await deleteWord(wordId);
     } catch {
+      // LE MOT REVIENT À SA PLACE. Il disparaissait de l'écran pour de bon,
+      // alors qu'il était toujours en base : il ressurgissait au chargement
+      // suivant, et rien n'avait dit que la suppression n'avait pas eu lieu.
+      if (listId && previous && activeRef.current === listId) {
+        setWords(previous);
+        syncCounts(listId, previous);
+      }
       setError("La suppression a échoué.");
+    }
+  }
+
+  /**
+   * Enregistre la modification d'un mot.
+   *
+   * ATTENDUE, ET NON APPLIQUÉE D'AVANCE comme le rangement : c'est le serveur
+   * qui pose l'accent tonique et recalcule la prononciation, donc le mot à
+   * afficher est celui qu'il renvoie, pas celui qu'on a tapé. Le formulaire
+   * reste ouvert pendant l'aller-retour, et le reste en cas de doublon.
+   */
+  async function saveEdit(input: Partial<WordInput>): Promise<EditOutcome> {
+    if (!editing) return { status: "failed", message: "Aucun mot à modifier." };
+    const wordId = editing.id;
+    try {
+      const { word } = await updateWord(wordId, input);
+      setWords((prev) => (prev ? prev.map((w) => (w.id === wordId ? { ...w, ...word } : w)) : prev));
+      setEditing(null);
+      return { status: "saved" };
+    } catch (err) {
+      if (isDuplicateWordError(err)) return { status: "duplicate", message: err.message };
+      return {
+        status: "failed",
+        message: err instanceof Error && err.message !== "Erreur réseau"
+          ? err.message
+          : "L'enregistrement a échoué. Réessaie.",
+      };
     }
   }
 
@@ -445,11 +535,11 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
             Vocabulaire
           </h2>
           {lists === null ? (
-            <div className="space-y-2">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="skeleton h-16 rounded-2xl" />
-              ))}
-            </div>
+            listsFailed ? (
+              <LoadFailure message="Impossible de charger tes listes." onRetry={retryLists} />
+            ) : (
+              <ListRailSkeleton />
+            )
           ) : (
             <ListRail
               lists={lists}
@@ -463,7 +553,25 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
 
         {/* ── Les mots ───────────────────────────────────────────── */}
         <section className={`min-w-0 ${showDetail ? "block" : "hidden"} lg:block`}>
-          {lists !== null && lists.length === 0 ? (
+          {lists === null ? (
+            // LES LISTES NE SONT PAS ENCORE ARRIVÉES — ce n'est ni « aucune
+            // liste » ni « rien de sélectionné ». Ce panneau disait « Choisis
+            // une liste à gauche » pendant tout le chargement, puis basculait
+            // sur la liste ouverte : on lisait un message d'absence avant de
+            // voir ses propres mots. L'échec, lui, est déjà dit dans la
+            // colonne de gauche ; il n'est répété ici que sous 1024 px, où
+            // cette colonne est masquée.
+            listsFailed ? (
+              <div className="lg:hidden">
+                <LoadFailure message="Impossible de charger tes listes." onRetry={retryLists} />
+              </div>
+            ) : (
+              <>
+                <WordToolbarSkeleton />
+                <WordRowsSkeleton />
+              </>
+            )
+          ) : lists.length === 0 ? (
             <EmptyState onCreate={() => setShowCreate(true)} />
           ) : !activeList ? (
             <div className="rounded-3xl surface p-16 text-center">
@@ -747,7 +855,26 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
 
               <div className="space-y-2.5">
                 {words === null ? (
-                  <ListRowsSkeleton />
+                  wordsFailed ? (
+                    <LoadFailure
+                      message="Impossible d'afficher les mots de cette liste."
+                      onRetry={retryWords}
+                      secondary={
+                        <button
+                          type="button"
+                          onClick={() => setActiveId(null)}
+                          className="rounded-xl border border-border px-4 py-2 font-display text-sm font-semibold text-muted transition-colors hover:border-muted hover:text-text"
+                        >
+                          Mes listes
+                        </button>
+                      }
+                    />
+                  ) : (
+                    // Autant de lignes que la liste a de mots (le rail les a
+                    // déjà comptés) : la page ne change pas de hauteur à
+                    // l'arrivée des mots.
+                    <WordRowsSkeleton rows={Math.min(Math.max(activeList.wordCount, 1), 8)} />
+                  )
                 ) : words.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center">
                     <p className="font-display text-sm text-muted">
@@ -774,6 +901,7 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
                         key={w.id}
                         word={w}
                         onDelete={removeWord}
+                        onEdit={setEditing}
                         onFocusChange={changeFocus}
                       />
                     ))}
@@ -806,6 +934,27 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
         description="Tape en russe ou en français — la traduction, l'accent tonique et la prononciation suivent."
       >
         <AddWordForm bare onAdd={handleAdd} onDone={() => setShowAdd(false)} />
+      </Modal>
+
+      {/* MODIFIER UN MOT : la même feuille que l'ajout, pour le même geste —
+          remplir deux langues — mais partant de ce qui est enregistré. On ne
+          pouvait jusqu'ici que supprimer un mot mal saisi et le retaper, en
+          perdant au passage son historique de révision. */}
+      <Modal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        variant="sheet"
+        title="Modifier le mot"
+        description="Corrige le russe, la traduction ou la prononciation — l'accent tonique est reposé à l'enregistrement."
+      >
+        {editing && (
+          <EditWordForm
+            key={editing.id}
+            word={editing}
+            onSave={saveEdit}
+            onCancel={() => setEditing(null)}
+          />
+        )}
       </Modal>
 
       {/* LA SUPPRESSION D'UNE LISTE PASSE PAR UN DIALOGUE, depuis qu'elle est
@@ -990,6 +1139,36 @@ function MoreDots() {
       <circle cx="12" cy="12" r="1.8" />
       <circle cx="19" cy="12" r="1.8" />
     </svg>
+  );
+}
+
+/** Un chargement qui a échoué, avec de quoi le relancer. */
+function LoadFailure({
+  message,
+  onRetry,
+  secondary,
+}: {
+  message: string;
+  onRetry: () => void;
+  secondary?: React.ReactNode;
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-2xl border border-danger/40 bg-danger/5 px-5 py-6 text-center"
+    >
+      <p className="font-display text-sm text-danger">{message}</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="btn btn-primary rounded-xl px-4 py-2 font-display text-sm"
+        >
+          Réessayer
+        </button>
+        {secondary}
+      </div>
+    </div>
   );
 }
 

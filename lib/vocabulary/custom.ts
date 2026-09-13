@@ -158,7 +158,19 @@ export function addWord(
   }).then((r) => json(r));
 }
 
-export function updateWord(wordId: string, word: Partial<WordInput>): Promise<{ ok: true }> {
+/**
+ * Enregistre la modification d'un mot et renvoie le mot TEL QUE LE SERVEUR
+ * L'A ÉCRIT — accent tonique posé, translittération recalculée. Sans
+ * l'état de révision (`srs`), que la modification ne touche pas : l'appelant
+ * garde le sien.
+ *
+ * Un russe qui existe déjà dans la liste lève `DuplicateWordError`, comme à
+ * l'ajout.
+ */
+export function updateWord(
+  wordId: string,
+  word: Partial<WordInput>
+): Promise<{ ok: true; word: Omit<CustomVocabWord, "srs" | "listId" | "listName"> }> {
   return fetch(`/api/vocab/words/${wordId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

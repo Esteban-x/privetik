@@ -13,7 +13,8 @@ import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
 import PronunciationRow from "@/components/vocabulary/PronunciationRow";
 import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
-import { ReviewCardSkeleton } from "@/components/ui/Skeleton";
+import NoWordsState from "@/components/vocabulary/NoWordsState";
+import { ReviewSessionSkeleton } from "@/components/vocabulary/VocabularySkeletons";
 
 function shuffle<T>(arr: T[]): T[] {
   const copy = [...arr];
@@ -26,7 +27,7 @@ function shuffle<T>(arr: T[]): T[] {
 
 export default function QcmPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<ReviewSessionSkeleton mode="qcm" />}>
       <QcmInner />
     </Suspense>
   );
@@ -96,7 +97,7 @@ function QcmInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, pool, direction]);
 
-  const backHref = listId ? `/vocabulary/lists/${listId}` : "/vocabulary/review";
+  const backHref = listId ? `/vocabulary?list=${listId}` : "/vocabulary/review";
   const backLabel = listId ? `← ${listName || "Liste"}` : "← Révision";
 
   // Le plafond de révisions du plan gratuit passe AVANT tout le reste :
@@ -121,17 +122,9 @@ function QcmInner() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-2xl px-6 py-8 sm:py-16">
-        <ReviewCardSkeleton />
-      </div>
-    );
-  }
+  if (loading) return <ReviewSessionSkeleton mode="qcm" />;
 
-  if (noWordsAtAll) {
-    return <EmptyState />;
-  }
+  if (noWordsAtAll) return <NoWordsState listId={listId} />;
 
   if (allKnown) {
     return <AllKnownState backHref={backHref} backLabel={backLabel} />;
@@ -280,27 +273,6 @@ function QcmInner() {
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="mx-auto max-w-md px-6 py-14 sm:py-24 text-center">
-      <p className="font-display text-lg font-semibold">Aucun mot à réviser pour l&apos;instant</p>
-      <p className="mt-2 font-display text-sm text-muted">
-        Choisis des thèmes dans ton{" "}
-        <Link href="/account" className="text-accent-ink hover:underline">
-          profil
-        </Link>{" "}
-        pour obtenir des mots tout faits, ou crée ta propre liste.
-      </p>
-      <Link
-        href="/vocabulary"
-        className="btn btn-primary btn-sheen mt-5 inline-block rounded-[10px] px-5 py-2.5 font-display text-sm"
-      >
-        Aller à mes listes
-      </Link>
     </div>
   );
 }

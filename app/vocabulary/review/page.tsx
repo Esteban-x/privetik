@@ -11,38 +11,60 @@ const GOAL_OPTIONS = [10, 15, 25, 40];
 // Point d'entrée global de révision (façon Anki/Duolingo "réviser
 // maintenant") : agrège les mots dus de TOUTES les listes plutôt que de
 // forcer à choisir une liste d'abord. La révision ciblée par liste reste
-// disponible depuis /vocabulary/lists/[listId].
+// disponible depuis le menu « Réviser » d'une liste (/vocabulary?list=…).
 export default function ReviewHubPage() {
   const [queueInfo, setQueueInfo] = useState<{
     dueCount: number;
     knownCount: number;
     totalWords: number;
   } | null>(null);
+  const [queueFailed, setQueueFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [daily, setDaily] = useState<{ reviewedToday: number; goal: number } | null>(null);
   const [savingGoal, setSavingGoal] = useState(false);
+  const [goalError, setGoalError] = useState(false);
 
   useEffect(() => {
     fetchDueWords()
       .then((d) =>
         setQueueInfo({ dueCount: d.dueCount, knownCount: d.knownCount, totalWords: d.totalWords })
       )
-      .catch(() => setQueueInfo({ dueCount: 0, knownCount: 0, totalWords: 0 }));
+      // UN ÉCHEC N'EST PAS « AUCUN MOT ». Il se traduisait par un compteur
+      // à zéro, donc par « Aucun mot à réviser » et un bouton vers ses
+      // listes — à quelqu'un qui en a des centaines et dont la connexion
+      // venait de flancher.
+      .catch(() => setQueueFailed(true));
+  }, [attempt]);
+
+  useEffect(() => {
     fetchDailyProgress()
       .then(setDaily)
       .catch(() => {});
   }, []);
 
+  function retry() {
+    setQueueFailed(false);
+    setAttempt((n) => n + 1);
+  }
+
   async function setGoal(goal: number) {
+    const previous = daily?.goal;
     setSavingGoal(true);
+    setGoalError(false);
     setDaily((d) => (d ? { ...d, goal } : d));
     try {
-      await fetch("/api/profile", {
+      const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vocab_daily_goal: goal }),
       });
+      if (!res.ok) throw new Error(String(res.status));
     } catch {
-      // Best-effort : la valeur locale reste affichée même si l'enregistrement échoue.
+      // L'OBJECTIF AFFICHÉ REVIENT À CELUI QUI EST ENREGISTRÉ. Le nouveau
+      // restait à l'écran quel que soit le sort de la requête : on croyait
+      // l'avoir réglé, et la visite suivante le défaisait sans explication.
+      if (previous !== undefined) setDaily((d) => (d ? { ...d, goal: previous } : d));
+      setGoalError(true);
     } finally {
       setSavingGoal(false);
     }
@@ -62,7 +84,24 @@ export default function ReviewHubPage() {
       <SectionLabel>Словарь</SectionLabel>
       <h1 className="mb-3 font-display text-3xl font-extrabold sm:text-4xl tracking-tight">Réviser</h1>
       {queueInfo === null ? (
-        <div className="skeleton mb-8 h-5 w-96 max-w-full rounded-lg" />
+        queueFailed ? (
+          <p role="alert" className="mb-8 max-w-2xl font-display leading-relaxed text-danger">
+            Impossible de compter tes mots à réviser.{" "}
+            <button
+              type="button"
+              onClick={retry}
+              className="font-semibold underline underline-offset-2"
+            >
+              Réessayer
+            </button>
+          </p>
+        ) : (
+          // À la hauteur de la ligne qui va la remplacer : sans ce cadre, la
+          // page remontait de quelques pixels à l'arrivée du compteur.
+          <p aria-hidden className="mb-8 font-display leading-relaxed">
+            <span className="skeleton inline-block h-4 w-96 max-w-full rounded-lg align-middle" />
+          </p>
+        )
       ) : (
         <p className="mb-8 max-w-2xl font-display leading-relaxed text-muted">
           {queueInfo.dueCount > 0
@@ -116,6 +155,11 @@ export default function ReviewHubPage() {
               </button>
             ))}
           </div>
+          {goalError && (
+            <p role="alert" className="mt-2 font-display text-xs text-danger">
+              L&apos;objectif n&apos;a pas été enregistré. Réessaie.
+            </p>
+          )}
         </div>
       )}
 
@@ -123,11 +167,8 @@ export default function ReviewHubPage() {
         <div className="rounded-[20px] surface p-8 text-center">
           <p className="font-display text-base font-semibold">Aucun mot à réviser</p>
           <p className="mt-2 font-display text-sm text-muted">
-            Choisis des thèmes dans ton{" "}
-            <Link href="/account" className="text-accent-ink hover:underline">
-              profil
-            </Link>{" "}
-            pour recevoir des mots tout faits, ou crée ta propre liste.
+            Tes listes sont vides. Ajoute des mots à une liste : ils arrivent en révision dès
+            l&apos;ajout.
           </p>
           <Link
             href="/vocabulary"

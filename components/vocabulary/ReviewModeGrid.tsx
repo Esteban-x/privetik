@@ -44,7 +44,7 @@ export default function ReviewModeGrid({ listId }: { listId?: string }) {
         <Link
           key={m.mode}
           href={`/vocabulary/${m.mode}${query}`}
-          className="group flex gap-4 rounded-2xl surface-interactive p-5 hover:-translate-y-0.5 hover:"
+          className="group flex gap-4 rounded-2xl surface-interactive p-5 hover:-translate-y-0.5"
         >
           {/* Le pictogramme prend la couleur d'accent au survol EN MÊME
               TEMPS que son fond : deux propriétés, une seule transition, et

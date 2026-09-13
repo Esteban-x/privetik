@@ -13,7 +13,8 @@ import Dropdown, { Chevron } from "@/components/ui/Dropdown";
  * Un mot, en carte.
  *
  * CE QUI RESTE À DÉCOUVERT : les deux langues, et « Expliquer ». Le reste —
- * le rangement du mot, sa suppression — vit dans le bouton de droite.
+ * le rangement du mot, sa modification, sa suppression — vit dans le bouton
+ * de droite.
  *
  * QUATRE FORMES ONT PRÉCÉDÉ CELLE-CI, et chacune corrigeait la précédente :
  *
@@ -47,10 +48,13 @@ import Dropdown, { Chevron } from "@/components/ui/Dropdown";
 export default function WordCard({
   word,
   onDelete,
+  onEdit,
   onFocusChange,
 }: {
   word: CustomVocabWord;
   onDelete: (wordId: string) => void;
+  /** Ouvre la feuille de modification du mot. */
+  onEdit: (word: CustomVocabWord) => void;
   onFocusChange: (wordId: string, focus: Focus) => void;
 }) {
   const [explaining, setExplaining] = useState(false);
@@ -69,6 +73,17 @@ export default function WordCard({
   // de révision du mot, qui ne se récupère pas. Elle se joue dans la même
   // rangée, sans déplier la carte ni ouvrir de fenêtre.
   const [confirming, setConfirming] = useState(false);
+
+  // UN MOT MODIFIÉ N'A PLUS LA MÊME FICHE. Celle qui restait montée parlait
+  // de l'ancien mot : on la replie et on l'oublie, elle sera redemandée pour
+  // le nouveau (le serveur a vidé son cache au même moment).
+  const text = `${word.ru}|${word.fr}`;
+  const [seenText, setSeenText] = useState(text);
+  if (text !== seenText) {
+    setSeenText(text);
+    setExplaining(false);
+    setEverExplained(false);
+  }
 
   const meta = FOCUS_META[word.focus];
 
@@ -182,7 +197,7 @@ export default function WordCard({
                 </>
               }
               buttonClassName="hover-surface flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border px-2 font-display text-[12px] text-muted"
-              label={`${meta.label} — changer le rangement ou supprimer ${word.ru}`}
+              label={`${meta.label} — ranger, modifier ou supprimer ${word.ru}`}
               width="w-[220px]"
             >
               {(close) => (
@@ -216,6 +231,17 @@ export default function WordCard({
                   })}
 
                   <div className="my-1 h-px bg-border" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      close();
+                      onEdit(word);
+                    }}
+                    className="menu-item flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-left font-display text-sm text-text"
+                  >
+                    <PencilGlyph />
+                    Modifier le mot
+                  </button>
                   {confirming ? (
                     <div className="px-3 py-2">
                       <p className="mb-2 font-display text-[12px] leading-snug text-muted">
@@ -270,6 +296,24 @@ export default function WordCard({
         </div>
       )}
     </div>
+  );
+}
+
+/** Le crayon de l'entrée « modifier », au format d'un item de menu. */
+function PencilGlyph() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+    >
+      <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4zM13.5 6.5l4 4" />
+    </svg>
   );
 }
 

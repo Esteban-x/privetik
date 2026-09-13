@@ -66,25 +66,33 @@ export function useReviewQueue(listId: string | null) {
   }
 
   useEffect(() => {
+    // Une réponse arrivée APRÈS un changement de liste ne doit pas écraser
+    // celle de la liste suivante : sans ce drapeau, la plus lente gagnait.
+    let cancelled = false;
     const req = listId
       ? fetchListDetail(listId).then((d) => ({ words: d.words, name: d.list.name }))
       : fetchDueWords().then((d) => ({ words: d.words, name: "Révision du jour" }));
 
     req
       .then(({ words: fetched, name }) => {
+        if (cancelled) return;
         setListName(name);
         setWords(fetched.filter((w) => focusOf(w) !== "known"));
         setAllWords(fetched);
       })
-      .catch((err) =>
+      .catch((err) => {
+        if (cancelled) return;
         setLoadError(
           err instanceof Error
             ? err.message
             : listId
               ? "Liste introuvable."
               : "Impossible de charger tes mots."
-        )
-      );
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [listId, reloadTick]);
 
   const queue = useMemo(() => {
@@ -241,6 +249,8 @@ export function useReviewQueue(listId: string | null) {
     listName,
     sessionIndex: sessionDone,
     sessionCorrect,
+    /** Mots encore à passer dans cette session, celui en cours compris. */
+    remaining: queue.length,
     noWordsAtAll,
     allKnown,
   };
