@@ -5,6 +5,7 @@ import {
   checkNumberAnswer,
   getNumberSkill,
   rebuildNumberExercise,
+  TYPABLE_NUMBER_SKILLS,
 } from "@/lib/numbers/exercises";
 import {
   checkConjugationAnswer,
@@ -16,6 +17,7 @@ import {
   checkAlphabetAnswer,
   getAlphabetSkill,
   rebuildAlphabetExercise,
+  TYPABLE_ALPHABET_SKILLS,
 } from "@/lib/alphabet/exercises";
 import { typedMatches, type PracticeExercise } from "@/lib/exercises/types";
 import { allowPractice } from "@/lib/practice/quota";
@@ -52,7 +54,7 @@ const MODULES: Record<string, Checker> = {
     hasSkill: (skill) => Boolean(getNumberSkill(skill)),
     check: checkNumberAnswer,
     rebuild: (itemId) => rebuildNumberExercise(itemId),
-    typable: [],
+    typable: TYPABLE_NUMBER_SKILLS,
     activityKind: "numbers",
   },
   conjugation: {
@@ -66,7 +68,7 @@ const MODULES: Record<string, Checker> = {
     hasSkill: (skill) => Boolean(getAlphabetSkill(skill)),
     check: checkAlphabetAnswer,
     rebuild: (itemId) => rebuildAlphabetExercise(itemId),
-    typable: [],
+    typable: TYPABLE_ALPHABET_SKILLS,
     activityKind: "alphabet",
   },
 };

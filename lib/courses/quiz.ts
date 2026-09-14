@@ -231,6 +231,9 @@ function bankQuestion(module: BankModule, skill: string, random: Rng, level: Cef
             ? generateConjugationExercise
             : generateAlphabetExercise;
       const ex = generate(skill, random);
+      // Un exercice à écouter n'a pas sa place dans un quiz lu : sans le son,
+      // la question est vide.
+      if (ex.audio) return null;
       return {
         id: ex.itemId,
         prompt: ex.prompt,

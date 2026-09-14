@@ -47,6 +47,7 @@ export const SKILL_COLORS: Record<string, Record<string, string>> = {
     date: "#63762b",
     age: "#a8952f",
     duration: "#5c7a3e",
+    listening: "#8c9a2a",
   },
   conjugation: {
     present1: "#d94a3d",
@@ -61,6 +62,7 @@ export const SKILL_COLORS: Record<string, Record<string, string>> = {
     spelling: "#219a58",
     stress: "#4aa88c",
     sounds: "#57b551",
+    dictation: "#2a9a78",
   },
 };
 

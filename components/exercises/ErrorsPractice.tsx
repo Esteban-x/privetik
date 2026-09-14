@@ -25,6 +25,8 @@ import { TIMELINE_LABEL } from "@/lib/aspect/verbs";
 import TimelineDiagram from "@/components/aspect/TimelineDiagram";
 import TrajectoryDiagram, { SCHEMA_LABEL } from "@/components/motion/TrajectoryDiagram";
 import PracticeCard, { describeSentence } from "@/components/exercises/PracticeCard";
+import SpeakButton from "@/components/vocabulary/SpeakButton";
+import { speakRu } from "@/lib/vocabulary/speech";
 
 /**
  * « Mes erreurs » : refaire, un autre jour, ce qui a été raté.
@@ -402,6 +404,16 @@ function ErrorQuestion({ item }: { item: ErrorItem }) {
               </span>
             )}
           </div>
+          {source.exercise.audio && (
+            <div className="mt-4">
+              <SpeakButton
+                text="Écouter"
+                label="Écouter le russe"
+                title="Écouter"
+                onSpeak={() => speakRu(source.exercise.audio as string)}
+              />
+            </div>
+          )}
           <WithBlank text={source.exercise.question} />
           {source.exercise.hint && (
             <p className="mt-1.5 font-display text-sm italic text-muted">{source.exercise.hint}</p>

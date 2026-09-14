@@ -10,6 +10,7 @@ const LESSONS: Record<string, { href: string; label: string }> = {
   stress: { href: "/cours/accent-tonique", label: "Leçon : l'accent tonique" },
   spelling: { href: "/cours/regles-orthographiques", label: "Leçon : les règles orthographiques" },
   sounds: { href: "/cours/reduction-des-voyelles", label: "Leçon : la réduction des voyelles" },
+  dictation: { href: "/cours/reduction-des-voyelles", label: "Leçon : la réduction des voyelles" },
 };
 
 export function generateStaticParams() {

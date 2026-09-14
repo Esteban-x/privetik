@@ -62,7 +62,17 @@ export const ALPHABET_SKILLS: Skill[] = [
     summary:
       "Молоко́ se dit « malako », сейча́с se dit « sitchas » : hors accent, о devient a et е devient i. C'est la raison pour laquelle un débutant qui lit bien ne comprend rien à l'oral.",
   },
+  {
+    id: "dictation",
+    title: "Dictée",
+    level: "A1",
+    summary:
+      "On entend « malako », on écrit молоко́ : l'orthographe russe garde ce que la prononciation efface. Écouter un mot et l'écrire, c'est remettre le о atone, le е et la consonne finale assourdie à leur place.",
+  },
 ];
+
+/** Les compétences qu'on peut aussi écrire : une dictée s'écrit. */
+export const TYPABLE_ALPHABET_SKILLS = ["dictation"];
 
 export function getAlphabetSkill(id: string): Skill | undefined {
   return ALPHABET_SKILLS.find((s) => s.id === id);
@@ -687,6 +697,167 @@ function soundExercise(random: Rng, forced?: SoundItem): PracticeExercise {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// 6. Dictée
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * L'ENVERS DE « CE QU'ON ENTEND VRAIMENT ». L'onglet précédent part de
+ * l'écrit et demande le son ; celui-ci part du son et demande l'écrit. Les
+ * leurres sont les fautes que produit une oreille juste : écrire ce qu'on
+ * entend — а pour le о atone, и pour le е ou le я atones, la sourde pour
+ * la sonore finale. Aucun n'est inventé : chacun est la transcription
+ * fidèle d'une prononciation réelle, et sa note dit laquelle.
+ */
+
+const VOICED_FINAL: Record<string, string> = { б: "п", в: "ф", г: "к", д: "т", ж: "ш", з: "с" };
+const DICTATION_VOWELS = "аеёиоуыэюя";
+
+/** La position de la voyelle accentuée dans le mot sans accent, ou -1 si elle est inconnue. */
+function stressedIndex(accented: string): number {
+  let plainIndex = -1;
+  for (const char of accented) {
+    if (char === ACCENT) return plainIndex;
+    plainIndex += 1;
+  }
+  const plain = accented.split(ACCENT).join("");
+  if (plain.includes("ё")) return plain.indexOf("ё");
+  const vowels = [...plain].map((c, i) => (DICTATION_VOWELS.includes(c) ? i : -1)).filter((i) => i >= 0);
+  return vowels.length === 1 ? vowels[0] : -1;
+}
+
+interface Slip {
+  index: number;
+  to: string;
+  note: string;
+  rule: "o" | "i" | "final" | "assim";
+}
+
+const VOICELESS = "кпстфхцчшщ";
+const VOICELESS_TO_VOICED: Record<string, string> = { к: "г", п: "б", с: "з", т: "д", ф: "в", ш: "ж" };
+
+/** Toutes les formes fléchies de la banque, sans accent : un leurre ne doit jamais être un vrai mot. */
+const KNOWN_FORMS = new Set(
+  NOUNS.flatMap((n) => [...n.forms.singular, ...(n.forms.plural ?? [])]).map((f) => f.split(ACCENT).join(""))
+);
+
+function slipsOf(accented: string): Slip[] {
+  const plain = [...accented.split(ACCENT).join("")];
+  const stressed = stressedIndex(accented);
+  if (stressed < 0) return [];
+  const slips: Slip[] = [];
+  plain.forEach((char, index) => {
+    // La voyelle FINALE atone se réduit en un son neutre, ni a ni i : l'écrire
+    // « comme on l'entend » ne donne aucune graphie sûre — et donnerait souvent
+    // un vrai mot (тётя → тёти).
+    if (index !== stressed && index !== plain.length - 1) {
+      if (char === "о") {
+        slips.push({ index, to: "а", rule: "o", note: "le о atone se prononce [a], mais l'écrit garde le о" });
+      } else if (char === "е" || char === "я") {
+        slips.push({ index, to: "и", rule: "i", note: `le ${char} atone se prononce presque [i], mais l'écrit garde le ${char}` });
+      }
+    }
+    // L'assimilation : une consonne prend la sonorité de celle qui la suit —
+    // ло́дка se dit « lotka », вокза́л « vagzal ».
+    const next = plain[index + 1];
+    if (next && VOICED_FINAL[char] && VOICELESS.includes(next)) {
+      slips.push({
+        index,
+        to: VOICED_FINAL[char],
+        rule: "assim",
+        note: `devant ${next}, ${char} s'entend ${VOICED_FINAL[char]}, mais l'écrit garde le ${char}`,
+      });
+    } else if (next && VOICELESS_TO_VOICED[char] && "бгджз".includes(next)) {
+      slips.push({
+        index,
+        to: VOICELESS_TO_VOICED[char],
+        rule: "assim",
+        note: `devant ${next}, ${char} s'entend ${VOICELESS_TO_VOICED[char]}, mais l'écrit garde le ${char}`,
+      });
+    }
+  });
+  const last = plain[plain.length - 1] === "ь" ? plain.length - 2 : plain.length - 1;
+  const devoiced = VOICED_FINAL[plain[last]];
+  if (devoiced) {
+    slips.push({
+      index: last,
+      to: devoiced,
+      rule: "final",
+      note: `en fin de mot, ${plain[last]} s'entend ${devoiced}, mais l'écrit garde le ${plain[last]}`,
+    });
+  }
+  return slips;
+}
+
+/** Les fautes d'oreille possibles : une confusion, puis deux quand une seule ne suffit pas. */
+function dictationDecoys(accented: string): { form: string; note: string }[] {
+  const plain = [...accented.split(ACCENT).join("")];
+  const apply = (slips: Slip[]) => {
+    const copy = [...plain];
+    for (const slip of slips) copy[slip.index] = slip.to;
+    return copy.join("");
+  };
+  const slips = slipsOf(accented);
+  const decoys = slips.map((slip) => ({ form: apply([slip]), note: slip.note }));
+  if (decoys.length < 3) {
+    for (let i = 0; i < slips.length; i += 1) {
+      for (let j = i + 1; j < slips.length; j += 1) {
+        decoys.push({ form: apply([slips[i], slips[j]]), note: `${slips[i].note} ; ${slips[j].note}` });
+      }
+    }
+  }
+  return decoys.filter(
+    (d, i) => decoys.findIndex((o) => o.form === d.form) === i && !KNOWN_FORMS.has(d.form)
+  );
+}
+
+/** Au moins deux fautes d'oreille : trois options, dont aucune n'est une devinette. */
+const DICTATION_WORDS = NOUNS.filter((n) => {
+  const accented = n.forms.singular[0];
+  const plain = accented.split(ACCENT).join("");
+  return (
+    /^[а-яё́]+$/.test(accented) &&
+    plain.length >= 4 &&
+    plain.length <= 10 &&
+    dictationDecoys(accented).length >= 2
+  );
+});
+
+const RULE_SENTENCE: Record<Slip["rule"], string> = {
+  o: "hors accent, о s'entend a",
+  i: "е et я s'entendent presque i",
+  final: "une consonne sonore s'assourdit en fin de mot",
+  assim: "une consonne prend la sonorité de celle qui la suit",
+};
+
+function dictationExercise(random: Rng, forced?: (typeof DICTATION_WORDS)[number]): PracticeExercise {
+  const noun = forced ?? pick(DICTATION_WORDS, random);
+  const accented = noun.forms.singular[0];
+  const plain = accented.split(ACCENT).join("");
+  const decoys = shuffle(dictationDecoys(accented), random);
+  const { options, correctIndex } = buildOptions(
+    plain,
+    decoys.map((d) => d.form),
+    random
+  );
+  const rules = [...new Set(slipsOf(accented).map((s) => s.rule))].map((rule) => RULE_SENTENCE[rule]);
+  return {
+    itemId: `dictation:${noun.id}`,
+    prompt: "Dictée",
+    question: "Quel mot entends-tu ? Retrouve son orthographe.",
+    hint: noun.translation,
+    audio: accented,
+    options,
+    correctIndex,
+    explain: `« ${accented} » s'écrit ${plain} : ${rules.join(", ")} — l'écrit, lui, ne change pas.`,
+    whyNot: whyNotFor(
+      options,
+      plain,
+      decoys.map((d) => [d.form, d.note])
+    ),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Tirage et correction
 // ─────────────────────────────────────────────────────────────────
 
@@ -705,6 +876,8 @@ export function generateAlphabetExercise(
       return spellingExercise(random);
     case "sounds":
       return soundExercise(random);
+    case "dictation":
+      return dictationExercise(random);
     default:
       throw new Error(`Compétence inconnue : ${skill}`);
   }
@@ -739,6 +912,10 @@ export function rebuildAlphabetExercise(
       const item = SOUND_ITEMS.find((s) => s.id === id);
       return item ? soundExercise(random, item) : null;
     }
+    case "dictation": {
+      const noun = DICTATION_WORDS.find((n) => n.id === id);
+      return noun ? dictationExercise(random, noun) : null;
+    }
     default:
       return null;
   }
@@ -770,9 +947,13 @@ export function checkAlphabetAnswer(itemId: string, answer: string): boolean | n
       const item = SOUND_ITEMS.find((s) => s.id === id);
       return item ? item.heard === answer : null;
     }
+    case "dictation": {
+      const noun = DICTATION_WORDS.find((n) => n.id === id);
+      return noun ? noun.forms.singular[0].split(ACCENT).join("") === answer : null;
+    }
     default:
       return null;
   }
 }
 
-export { LETTERS, SPELLING_ITEMS, SOUND_ITEMS, STRESS_WORDS, TRAP_WORDS, transcribe };
+export { LETTERS, SPELLING_ITEMS, SOUND_ITEMS, STRESS_WORDS, TRAP_WORDS, DICTATION_WORDS, dictationDecoys, transcribe };

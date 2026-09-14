@@ -24,6 +24,12 @@ export interface PracticeExercise {
   hint?: string;
   /** Étiquette optionnelle : l'information donnée d'avance (genre, personne…). */
   badge?: string;
+  /**
+   * Le russe à FAIRE ENTENDRE au lieu de le montrer — nombres à l'oreille,
+   * dictée. Absent, l'exercice se lit. Présent, la question ne l'écrit jamais :
+   * l'afficher reviendrait à donner la réponse.
+   */
+  audio?: string;
   options: string[];
   correctIndex: number;
   /** Pourquoi c'est cette réponse — affiché après le choix, jamais avant. */

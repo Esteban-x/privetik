@@ -1,7 +1,7 @@
 "use client";
 
 import PracticeRunner from "@/components/exercises/PracticeRunner";
-import { generateNumberExercise } from "@/lib/numbers/exercises";
+import { generateNumberExercise, TYPABLE_NUMBER_SKILLS } from "@/lib/numbers/exercises";
 
 /**
  * Le pont entre la page (serveur) et le moteur (client) : une fonction ne
@@ -16,6 +16,7 @@ export default function NumbersPractice({ skill, color }: { skill: string; color
       skill={skill}
       color={color}
       generate={generateNumberExercise}
+      typingSkills={TYPABLE_NUMBER_SKILLS}
     />
   );
 }

@@ -5,6 +5,9 @@ import { drawFresh } from "@/lib/practice/recent";
 import { spokenSentence } from "@/lib/practice/retry";
 import { usePracticeSession } from "@/lib/practice/use-practice-session";
 import PracticeCard, { AnswerModeToggle, describeSentence, useAnswerMode } from "./PracticeCard";
+import SpeakButton from "@/components/vocabulary/SpeakButton";
+import { speakRu } from "@/lib/vocabulary/speech";
+import { useEffect } from "react";
 
 /**
  * Le moteur d'entraînement partagé par les modules récents.
@@ -45,8 +48,16 @@ export default function PracticeRunner({
       endpoint: "/api/exercises/attempt",
       body: { module: moduleId, skill, itemId: ex.itemId, answer, typed },
     }),
-    describe: (ex) => describeSentence(ex.question, ex.hint),
+    describe: (ex) => describeSentence(ex.question, ex.audio ?? ex.hint),
   });
+
+  // Un exercice à écouter se fait entendre dès qu'il arrive. Le premier peut
+  // rester muet si le navigateur attend un geste : le bouton est là pour ça.
+  const audio = session.exercise?.audio;
+  const itemId = session.exercise?.itemId;
+  useEffect(() => {
+    if (audio) void speakRu(audio);
+  }, [audio, itemId]);
 
   return (
     <PracticeCard
@@ -74,7 +85,16 @@ export default function PracticeRunner({
                 </span>
               )}
             </div>
-            <p className="font-display text-2xl font-bold leading-snug">
+            {ex.audio && (
+              <SpeakButton
+                text="Écouter"
+                label="Écouter le russe"
+                title="Écouter (autant de fois que nécessaire)"
+                onSpeak={() => speakRu(ex.audio as string)}
+                className="mb-4"
+              />
+            )}
+            <p className={`font-display leading-snug ${ex.audio ? "text-lg font-semibold" : "text-2xl font-bold"}`}>
               {before}
               {after !== null && (
                 <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>

@@ -67,7 +67,17 @@ export const NUMBER_SKILLS: Skill[] = [
     summary:
       "Quatre questions, quatre constructions : combien de temps (accusatif seul), en combien de temps (за), dans combien de temps (че́рез), pour combien de temps (на).",
   },
+  {
+    id: "listening",
+    title: "À l'oreille",
+    level: "A1",
+    summary:
+      "Пятна́дцать ou пятьдеся́т ? À l'écrit, 15 et 50 ne se ressemblent pas ; à l'oral, seule la finale les sépare. Reconnaître un prix, une heure ou un numéro de quai se joue sur -на́дцать, -дцать et -сот.",
+  },
 ];
+
+/** Les compétences qu'on peut aussi écrire : un nombre entendu se note en chiffres. */
+export const TYPABLE_NUMBER_SKILLS = ["listening"];
 
 export type NumberSkillId = (typeof NUMBER_SKILLS)[number]["id"];
 
@@ -759,6 +769,106 @@ function durationExercise(random: Rng, forced?: DurationContext): PracticeExerci
 }
 
 // ─────────────────────────────────────────────────────────────────
+// 6. À l'oreille
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * POURQUOI À L'ORAL. Tous les onglets de ce module montrent le nombre écrit.
+ * Or c'est à l'oral qu'un nombre se rate : au marché, au téléphone, à la
+ * gare. Et ce qui trompe n'est pas ce qui trompe à l'écrit — ce sont des
+ * mots presque homophones : пятна́дцать / пятьдеся́т / пятьсо́т, двена́дцать /
+ * два́дцать, се́мьдесят / семна́дцать. Les leurres sont donc tirés de la même
+ * famille que la réponse, et chacun dit comment il se serait prononcé.
+ */
+
+const UNITS = ["", "оди́н", "два", "три", "четы́ре", "пять", "шесть", "семь", "во́семь", "де́вять"];
+const TEENS = [
+  "де́сять", "оди́ннадцать", "двена́дцать", "трина́дцать", "четы́рнадцать",
+  "пятна́дцать", "шестна́дцать", "семна́дцать", "восемна́дцать", "девятна́дцать",
+];
+const TENS = ["", "", "два́дцать", "три́дцать", "со́рок", "пятьдеся́т", "шестьдеся́т", "се́мьдесят", "во́семьдесят", "девяно́сто"];
+const HUNDREDS = ["", "сто", "две́сти", "три́ста", "четы́реста", "пятьсо́т", "шестьсо́т", "семьсо́т", "восемьсо́т", "девятьсо́т"];
+
+/** Un cardinal de 1 à 999, en toutes lettres et accentué. */
+export function cardinalWords(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw new Error(`Nombre hors limites : ${n}`);
+  const parts: string[] = [];
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  if (hundreds > 0) parts.push(HUNDREDS[hundreds]);
+  if (rest >= 10 && rest < 20) parts.push(TEENS[rest - 10]);
+  else {
+    if (rest >= 20) parts.push(TENS[Math.floor(rest / 10)]);
+    if (rest % 10 > 0) parts.push(UNITS[rest % 10]);
+  }
+  return parts.join(" ");
+}
+
+/** Les nombres servis : unités, 12-19, dizaines, centaines, et deux familles de composés. */
+const LISTENING_NUMBERS: number[] = [
+  ...[2, 3, 4, 5, 6, 7, 8, 9],
+  ...[12, 13, 14, 15, 16, 17, 18, 19],
+  ...[20, 30, 40, 50, 60, 70, 80, 90],
+  ...[200, 300, 400, 500, 600, 700, 800, 900],
+  ...[2, 3, 5, 6, 7, 8, 9].flatMap((d) => [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((e) => e !== d).map((e) => d * 10 + e)),
+  ...[2, 3, 5, 6, 7, 8, 9].flatMap((h) => [2, 5, 7, 9].filter((e) => e !== h).map((e) => h * 100 + e)),
+];
+
+/** Ce qu'on risque d'entendre à la place : la même famille de sons. */
+function listeningDecoys(n: number): number[] {
+  const candidates: number[] = [];
+  if (n < 10) candidates.push(10 + n, 10 * n, 100 * n);
+  else if (n < 20) candidates.push(10 * (n - 10), n - 10, 100 * (n - 10));
+  else if (n < 100 && n % 10 === 0) candidates.push(10 + n / 10, n / 10, (n / 10) * 100);
+  else if (n % 100 === 0) candidates.push((n / 100) * 10, 10 + n / 100, n / 100);
+  else if (n < 100) {
+    const d = Math.floor(n / 10);
+    const e = n % 10;
+    candidates.push(e * 10 + d, 10 + d, d * 100 + e);
+  } else {
+    const h = Math.floor(n / 100);
+    const e = n % 100;
+    candidates.push(h * 10 + e, h * 100 + e * 10, e * 10 + h);
+  }
+  return candidates.filter((m, i) => m >= 1 && m <= 999 && m !== n && candidates.indexOf(m) === i);
+}
+
+function listeningExplain(n: number): string {
+  const words = cardinalWords(n);
+  if (n >= 12 && n < 20) {
+    return `« ${words} » : ${n}. La finale -на́дцать (« sur dix ») fait 11 à 19 ; les dizaines finissent en -дцать ou -десят.`;
+  }
+  if (n >= 20 && n < 100 && n % 10 === 0) {
+    return `« ${words} » : ${n}. Les dizaines finissent en -дцать (20, 30) ou -десят (50 à 80) — sauf со́рок et девяно́сто ; -на́дцать ferait 11 à 19.`;
+  }
+  if (n >= 100) {
+    return `« ${words} » : ${n}. Les centaines s'entendent à leur finale : -сти, -ста, -сот.`;
+  }
+  if (n > 20) return `« ${words} » : ${n}. Les dizaines d'abord, les unités ensuite — comme en français.`;
+  return `« ${words} » : ${n}.`;
+}
+
+function listeningExercise(random: Rng, forced?: number): PracticeExercise {
+  const n = forced ?? pick(LISTENING_NUMBERS, random);
+  const decoys = listeningDecoys(n);
+  const { options, correctIndex } = buildOptions(String(n), decoys.map(String), random);
+  return {
+    itemId: `listening:${n}`,
+    prompt: "À l'oreille",
+    question: "Quel nombre entends-tu ?",
+    audio: cardinalWords(n),
+    options,
+    correctIndex,
+    explain: listeningExplain(n),
+    whyNot: whyNotFor(
+      options,
+      String(n),
+      decoys.map((m) => [String(m), `se dirait « ${cardinalWords(m)} »`])
+    ),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Tirage et correction
 // ─────────────────────────────────────────────────────────────────
 
@@ -774,6 +884,8 @@ export function generateNumberExercise(skill: string, random: Rng = Math.random)
       return ageExercise(random);
     case "duration":
       return durationExercise(random);
+    case "listening":
+      return listeningExercise(random);
     default:
       throw new Error(`Compétence inconnue : ${skill}`);
   }
@@ -820,6 +932,10 @@ export function rebuildNumberExercise(
       const context = DURATION_CONTEXTS.find((c) => c.id === rest[0]);
       return context ? durationExercise(random, context) : null;
     }
+    case "listening": {
+      const n = Number(rest[0]);
+      return rest.length === 1 && LISTENING_NUMBERS.includes(n) ? listeningExercise(random, n) : null;
+    }
     default:
       return null;
   }
@@ -834,6 +950,10 @@ export function rebuildNumberExercise(
  */
 export function checkNumberAnswer(itemId: string, answer: string): boolean | null {
   const [skill, ...rest] = itemId.split(":");
+  if (skill === "listening") {
+    const n = Number(rest[0]);
+    return rest.length === 1 && LISTENING_NUMBERS.includes(n) ? answer === String(n) : null;
+  }
   switch (skill) {
     case "agreement": {
       const [nounId, value] = rest;

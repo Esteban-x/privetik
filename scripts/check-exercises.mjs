@@ -80,6 +80,7 @@ const MODULES = [
     generate: numbers.generateNumberExercise,
     check: numbers.checkNumberAnswer,
     rebuild: numbers.rebuildNumberExercise,
+    typable: numbers.TYPABLE_NUMBER_SKILLS,
   },
   {
     id: "conjugation",
@@ -95,6 +96,7 @@ const MODULES = [
     generate: alphabet.generateAlphabetExercise,
     check: alphabet.checkAlphabetAnswer,
     rebuild: alphabet.rebuildAlphabetExercise,
+    typable: alphabet.TYPABLE_ALPHABET_SKILLS,
   },
 ];
 
@@ -174,6 +176,15 @@ for (const bank of MODULES) {
       }
       if (!exercise.prompt || !exercise.question || !exercise.explain) {
         failures.push(`${where} : consigne, énoncé ou explication vide`);
+      }
+      // UN EXERCICE À L'OREILLE NE MONTRE PAS CE QU'IL FAIT ENTENDRE : la
+      // réponse ne doit apparaître ni dans l'énoncé ni dans l'indice.
+      if (exercise.audio !== undefined) {
+        if (!/[а-яё]/i.test(exercise.audio)) failures.push(`${where} : audio sans russe (${exercise.audio})`);
+        const shown = `${exercise.question} ${exercise.hint ?? ""} ${exercise.prompt}`;
+        if (shown.includes(correct) || shown.includes(exercise.audio) || shown.includes(strip(exercise.audio))) {
+          failures.push(`${where} : l'énoncé écrit ce qu'il fallait entendre`);
+        }
       }
       checks += 1;
     }
@@ -283,6 +294,29 @@ expect("âge 5", numbers.yearWord(5), "лет");
 expect("âge 11", numbers.yearWord(11), "лет");
 expect("âge 21", numbers.yearWord(21), "год");
 expect("âge 22", numbers.yearWord(22), "го́да");
+
+expect("cardinal 15", numbers.cardinalWords(15), "пятна́дцать");
+expect("cardinal 50", numbers.cardinalWords(50), "пятьдеся́т");
+expect("cardinal 57", numbers.cardinalWords(57), "пятьдеся́т семь");
+expect("cardinal 40", numbers.cardinalWords(40), "со́рок");
+expect("cardinal 200", numbers.cardinalWords(200), "две́сти");
+expect("cardinal 507", numbers.cardinalWords(507), "пятьсо́т семь");
+expect("cardinal 999", numbers.cardinalWords(999), "девятьсо́т девяно́сто де́вять");
+expect("cardinal 111", numbers.cardinalWords(111), "сто оди́ннадцать");
+
+// La dictée : chaque leurre est la transcription d'une prononciation réelle.
+{
+  const forms = (word) => alphabet.dictationDecoys(word).map((d) => d.form).sort().join(",");
+  expect("dictée молоко́", forms("молоко́"), ["малоко", "молако", "малако"].sort().join(","));
+  const gorod = alphabet.dictationDecoys("го́род").map((d) => d.form);
+  require_(gorod.includes("горад") && gorod.includes("горот"), `dictée го́род : ${gorod.join(", ")}`);
+  require_(!gorod.includes("гарод"), "dictée го́род : le о accentué ne doit jamais devenir а");
+  const vokzal = alphabet.dictationDecoys("вокза́л").map((d) => d.form);
+  require_(vokzal.includes("вогзал") && vokzal.includes("вакзал"), `dictée вокза́л : ${vokzal.join(", ")}`);
+  require_(!alphabet.dictationDecoys("тётя").some((d) => d.form === "тёти"), "dictée тётя : un leurre est un vrai mot (тёти)");
+  require_(!alphabet.dictationDecoys("де́ло").some((d) => d.form === "дела"), "dictée де́ло : la voyelle finale ne se réécrit pas");
+  require_(alphabet.DICTATION_WORDS.length >= 40, `dictée : seulement ${alphabet.DICTATION_WORDS.length} mots`);
+}
 
 expect("lecture рестора́н", alphabet.transcribe("рестора́н", []), "restoran");
 expect("lecture вход", alphabet.transcribe("вход", []), "vkhod");

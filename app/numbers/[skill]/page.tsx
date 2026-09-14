@@ -14,6 +14,7 @@ const LESSONS: Record<string, { href: string; label: string }> = {
   date: { href: "/cours/dates-et-jours", label: "Leçon : les dates et les jours" },
   age: { href: "/cours/age-et-duree", label: "Leçon : l'âge et la durée" },
   duration: { href: "/cours/age-et-duree", label: "Leçon : l'âge et la durée" },
+  listening: { href: "/cours/nombres-cardinaux", label: "Leçon : les nombres cardinaux" },
 };
 
 export function generateStaticParams() {
