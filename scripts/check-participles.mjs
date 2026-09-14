@@ -258,6 +258,13 @@ for (const skill of X.PARTICIPLE_SKILLS) {
     const ex = X.generateParticipleExercise(skill.id);
     items.add(ex.itemId);
     const answer = ex.options[ex.correctIndex];
+    // Le verbe dont on cherche la forme est nommé sous la phrase.
+    if (ex.compressed?.includes("___") && !ex.lemma) {
+      failures.push(`${skill.id} › ${ex.itemId} : phrase à trou sans le verbe à l'infinitif`);
+    }
+    if (ex.lemma && ex.options.includes(ex.lemma)) {
+      failures.push(`${skill.id} › ${ex.itemId} : l'indice « ${ex.lemma} » est une des options`);
+    }
 
     if (
       ex.options.length < 2 ||

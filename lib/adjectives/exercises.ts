@@ -570,6 +570,12 @@ export interface AdjectiveExercise {
   sentenceFr: string;
   /** Le nom qualifié, en clair, avec son genre — ce sur quoi on accorde. */
   nounLabel: string;
+  /**
+   * L'adjectif à accorder, à la forme du dictionnaire : « но́вый ». En mode
+   * « Écrire », rien d'autre ne le nommait — la traduction française le
+   * laissait deviner, et l'exercice devenait une question de vocabulaire.
+   */
+  lemma: string;
   options: string[];
   correctIndex: number;
   explain: string;
@@ -731,6 +737,7 @@ export function generateAdjectiveExercise(
     skill,
     itemId: `${skill}:${context.id}`,
     sentence: context.ru.replace("{N}", nounResult.accented),
+    lemma: adjective.lemmaM,
     sentenceFr: context.fr,
     nounLabel: `${nounResult.accented} — ${GENDER_LABEL[noun.gender]}${
       plural ? " pluriel" : " singulier"

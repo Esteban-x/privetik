@@ -60,10 +60,16 @@ export default function AdjectivePractice({
 
           <p className="font-display text-2xl font-bold">
             {ex.sentence.split("___")[0]}
-            <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
+            <span className="blank inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
             {ex.sentence.split("___")[1]}
           </p>
-          <p className="mt-1 font-display text-sm italic text-muted">{ex.sentenceFr}</p>
+          {/* L'adjectif à la forme du dictionnaire, comme le nom à décliner
+              sur les pages de cas : en mode « Écrire », rien d'autre ne le
+              nommait. */}
+          <p className="mt-1 font-display text-sm italic text-muted">
+            {ex.sentenceFr}
+            <span className="ml-2 not-italic text-accent2">({ex.lemma})</span>
+          </p>
         </>
       )}
     />

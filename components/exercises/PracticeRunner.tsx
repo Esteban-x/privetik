@@ -97,7 +97,7 @@ export default function PracticeRunner({
             <p className={`font-display leading-snug ${ex.audio ? "text-lg font-semibold" : "text-2xl font-bold"}`}>
               {before}
               {after !== null && (
-                <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
+                <span className="blank inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
               )}
               {after}
             </p>

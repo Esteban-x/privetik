@@ -410,10 +410,11 @@ function VoiceSession({
 
         {/* RÉÉCOUTER PLUS LENTEMENT. Un mot russe inconnu dit à vitesse
             normale se perd en une syllabe ; le réentendre au même débit ne
-            l'éclaire pas davantage. */}
+            l'éclaire pas davantage. Le débit est relatif à celui de la langue
+            (voir SPEECH_RATE) : le russe, déjà ralenti, descend encore. */}
         <button
           type="button"
-          onClick={() => replay(0.7)}
+          onClick={() => replay(0.8)}
           className="mt-3 font-display text-xs font-semibold text-muted underline-offset-2 transition-colors hover:text-accent-ink hover:underline"
         >
           Réécouter lentement

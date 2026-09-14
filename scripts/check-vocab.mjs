@@ -36,6 +36,7 @@ const P = await jiti.import("../lib/ai/prompts.ts");
 const { ANSWER_LANG, PROMPT_LANG, RECOGNITION_ERRORS, MAX_LISTEN_MS, END_GRACE_MS, MAX_ALTERNATIVES } = await jiti.import("../lib/vocabulary/speech.ts");
 const H = await jiti.import("../lib/reading/case-hints.ts");
 const X = await jiti.import("../lib/reading/explanation.ts");
+const M = await jiti.import("../lib/reading/manual.ts");
 const { TRIGGERS } = await jiti.import("../lib/grammar/triggers.ts");
 
 const failures = [];
@@ -1011,6 +1012,102 @@ for (const text of T.READING_TEXTS) {
   }
   require_(positions.size >= 3, "compréhension : la bonne réponse est toujours à la même place");
   console.log(`  compréhension : ${total} questions sur ${T.READING_TEXTS.length} textes`);
+}
+
+// ─── Texte collé par l'apprenant (lib/reading/manual.ts) ──────────
+// Le modèle rend des gloses qu'on pose sur un découpage fait ici. Un
+// découpage faux ou un alignement laxiste poseraient chaque cas sur le
+// mauvais mot : c'est ce qui est vérifié.
+{
+  require_(
+    M.tokenizeText("— Вы надолго? — спросила она. Хорошо.").length === 2,
+    "texte collé : « ? — спросила она. » continue la réplique, ce n'est pas une nouvelle phrase"
+  );
+  const sentences = M.tokenizeText("— Привет! Как дела?\nА. С. Пушкин жил в Москве.\n—");
+  require_(
+    sentences.length === 3,
+    `texte collé : 3 phrases attendues, ${sentences.length} obtenues (${JSON.stringify(sentences)})`
+  );
+  require_(
+    JSON.stringify(sentences[0]) === JSON.stringify(["—", "Привет!"]),
+    `texte collé : le tiret de réplique reste un mot à part (${JSON.stringify(sentences[0])})`
+  );
+  require_(
+    sentences[2]?.[0] === "А." && sentences[2]?.length === 7 && sentences[2]?.[6] === "—",
+    `texte collé : une initiale ne coupe pas la phrase, un tiret seul s'y rattache (${JSON.stringify(sentences[2])})`
+  );
+  require_(
+    M.tokenizeText("Кто это? — Я. Привет").length === 3,
+    "texte collé : « Я. » finit une phrase, ce n'est pas une initiale"
+  );
+  require_(
+    M.annotationLines(sentences).split("\n")[0] === "1. Привет!",
+    `texte collé : la ponctuation seule n'est pas envoyée au modèle (${M.annotationLines(sentences).split("\n")[0]})`
+  );
+
+  const applied = M.applyAnnotations(sentences, [
+    [["Привет", "salut"]],
+    [["Как", "comment"], ["дела", "affaires", "nom"]],
+    [["А", "A."], ["С", "S."], ["Пушкин", "Pouchkine", "NOM"], ["жил", "vivait"], ["в", "à"], ["москве", "Moscou", "prepositional"]],
+  ]);
+  require_(
+    applied?.missed === 0 && applied?.words === 9,
+    `texte collé : annotation complète mal comptée (${applied?.missed} manqué(s) sur ${applied?.words})`
+  );
+  require_(
+    applied?.sentences[0][0].gloss === undefined && applied?.sentences[0][1].gloss === "salut",
+    "texte collé : la glose doit tomber sur le mot, pas sur le tiret"
+  );
+  require_(
+    applied?.sentences[1][1].case === "nominative" && applied?.sentences[1][0].case === undefined,
+    "texte collé : « nom » donne le nominatif, une glose seule aucun cas"
+  );
+  require_(
+    applied?.sentences[2][2].case === "nominative" &&
+      applied?.sentences[2][5].case === "prepositional" &&
+      applied?.sentences[2][6].ru === "—",
+    "texte collé : code en majuscules ou nom complet refusé, mot recopié en minuscules non reconnu, ou tiret final perdu"
+  );
+
+  // Deux phrases fusionnées et un mot oublié : l'alignement suit les mots, pas les tableaux.
+  const merged = M.applyAnnotations(sentences, [
+    [["Привет", "salut"], ["Как", "comment"], ["дела", "affaires", "xyz"]],
+    [["А", "A."], ["Пушкин", "Pouchkine", "nom"], ["жил", "vivait"], ["в", "à"], ["Москве", "Moscou", "pre"]],
+  ]);
+  require_(
+    merged?.missed === 1 && merged.sentences[2][1].gloss === undefined && merged.sentences[2][2].case === "nominative",
+    `texte collé : un mot oublié doit rester seul sans glose, sans décaler la suite (${merged?.missed} manqué(s))`
+  );
+  require_(
+    merged?.sentences[1][1].gloss === "affaires" && merged.sentences[1][1].case === undefined,
+    "texte collé : un code de cas inconnu garde la glose et ne pose aucun cas"
+  );
+
+  // Une glose n'est jamais posée sur un autre mot que celui qu'elle recopie.
+  const wrong = M.applyAnnotations(sentences, [[["Пока", "au revoir", "nom"]], [["Как", "comment"], ["дела", "affaires"]]]);
+  require_(
+    wrong?.sentences[0][1].gloss === undefined && wrong.sentences[1][0].gloss === "comment" && wrong.missed === 7,
+    `texte collé : glose posée sur un mot qu'elle ne recopie pas (${wrong?.missed} manqué(s))`
+  );
+  require_(M.applyAnnotations(sentences, "rien") === null, "texte collé : réponse sans tableau acceptée");
+
+  require_(M.checkManualText("Я живу в Москве.").ok, "texte collé : phrase russe simple refusée");
+  require_(!M.checkManualText("I live in Moscow, really.").ok, "texte collé : texte latin accepté");
+  require_(!M.checkManualText("Привет").ok, "texte collé : un seul mot accepté");
+  require_(
+    !M.checkManualText("Я живу в Москве. ".repeat(200)).ok,
+    `texte collé : plus de ${M.MANUAL_TEXT_MAX_CHARS} caractères acceptés`
+  );
+  require_(
+    M.fallbackTitle(sentences) === "Привет Как дела А…",
+    `texte collé : titre de repli inattendu (${M.fallbackTitle(sentences)})`
+  );
+
+  const prompt = P.readingAnnotationPrompt("B1");
+  require_(
+    /"nom", "gen", "dat", "acc", "ins" ou "pre"/.test(prompt) && /recopié/.test(prompt) && /DONNÉE/.test(prompt),
+    "texte collé : le prompt d'annotation a perdu ses codes de cas, le mot recopié ou sa mise en garde"
+  );
 }
 
 // ─── Rapport ───────────────────────────────────────────────────────

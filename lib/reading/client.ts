@@ -33,6 +33,18 @@ export function generateReadingText(
   }).then((r) => json(r));
 }
 
+/** Un texte collé par l'apprenant, annoté mot à mot — voir app/api/ai/reading/annotate. */
+export function annotateReadingText(input: {
+  text: string;
+  title?: string;
+}): Promise<{ text: ReadingText; id: string | null }> {
+  return fetch("/api/ai/reading/annotate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }).then((r) => json(r));
+}
+
 export interface SavedReadingTextSummary {
   id: string;
   title: string;

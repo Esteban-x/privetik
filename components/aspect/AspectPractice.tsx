@@ -67,12 +67,15 @@ export default function AspectPractice({
             <p className="mt-5 font-display text-2xl font-bold">
               {ex.sentence.split("___")[0]}
               {ex.sentence.includes("___") && (
-                <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
+                <span className="blank inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
               )}
               {ex.sentence.split("___")[1]}
             </p>
           )}
-          <p className="mt-1 font-display text-sm italic text-muted">{ex.sentenceFr}</p>
+          <p className="mt-1 font-display text-sm italic text-muted">
+            {ex.sentenceFr}
+            {ex.lemma && <span className="ml-2 not-italic text-accent2">({ex.lemma})</span>}
+          </p>
         </>
       )}
     />

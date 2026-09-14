@@ -62,6 +62,11 @@ export interface MotionExercise {
   /** Phrase russe à trou, si l'exercice en a une. */
   sentence?: string;
   sentenceFr: string;
+  /**
+   * La paire à placer dans le trou, « идти́ / ходи́ть ». Absent quand le verbe
+   * EST la réponse (le mode de déplacement) ou que le trou n'est pas un verbe.
+   */
+  lemma?: string;
   schema?: TrajectorySchema;
   mode?: MotionMode;
   options: string[];
@@ -360,6 +365,7 @@ function directionExercise(
     ]),
     skill: "direction",
     itemId: `direction:${pair.id}:${context.id}`,
+    lemma: `${pair.uni} / ${pair.multi}`,
     prompt: "Trajet unique ou habitude ?",
     sentence: context.marker,
     sentenceFr: context.fr,

@@ -738,7 +738,7 @@ export default function CaseDeclension({
                 <p className="font-display text-sm text-muted">Complète la phrase :</p>
                 <p className="font-display text-2xl font-bold">
                   {exercise.sentenceTemplate?.split("___")[0]}
-                  <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
+                  <span className="blank inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
                   {exercise.sentenceTemplate?.split("___")[1]}
                 </p>
                 {/* Forme du dictionnaire du mot à décliner, juste après la

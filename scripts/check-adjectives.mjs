@@ -192,6 +192,8 @@ for (const skill of ADJECTIVE_SKILLS) {
     // Le nom doit avoir été inséré, et le trou rester.
     require_(!ex.sentence.includes("{N}"), `« ${context.id} » : nom non substitué`);
     expect(`« ${context.id} » : trou conservé`, ex.sentence.split("___").length, 2);
+    // En mode « Écrire », seul l'indice nomme l'adjectif à accorder.
+    expect(`« ${context.id} » : adjectif nommé sous la phrase`, ex.lemma, getAdjective(context.adjective)?.lemmaM);
 
     // Toutes les options viennent du MÊME adjectif : un distracteur d'un
     // autre mot se rejetterait sur le sens et pas sur l'accord.

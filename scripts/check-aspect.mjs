@@ -187,6 +187,13 @@ for (const skill of X.ASPECT_SKILLS) {
     const ex = X.generateAspectExercise(skill.id);
     items.add(ex.itemId);
     const answer = ex.options[ex.correctIndex];
+    // Le trou nomme la paire entière : un seul verbe, ce serait la réponse.
+    if (ex.sentence?.includes("___") && !ex.lemma?.includes(" / ")) {
+      failures.push(`${skill.id} › ${ex.itemId} : phrase à trou sans la paire du verbe`);
+    }
+    if (ex.lemma && ex.options.includes(ex.lemma)) {
+      failures.push(`${skill.id} › ${ex.itemId} : l'indice « ${ex.lemma} » est une des options`);
+    }
 
     if (ex.options.length < 2 || new Set(ex.options).size !== ex.options.length) malformed += 1;
     if (X.checkAspectAnswer(ex.itemId, answer) !== true) unverifiable += 1;

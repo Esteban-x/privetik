@@ -79,6 +79,11 @@ export interface AspectExercise {
   prompt: string;
   sentence?: string;
   sentenceFr: string;
+  /**
+   * La paire du verbe à placer, « писа́ть / написа́ть ». Les deux à la fois :
+   * c'est l'aspect qu'on choisit, en nommer un seul donnerait la réponse.
+   */
+  lemma?: string;
   schema?: TimelineSchema;
   options: string[];
   correctIndex: number;
@@ -344,6 +349,7 @@ function pastExercise(random: Rng, onlyMarkers: boolean, forced?: AspectContext)
   return {
     skill: onlyMarkers ? "markers" : "past",
     itemId: `${onlyMarkers ? "markers" : "past"}:${context.id}:${pair.id}`,
+    lemma: `${pair.imperfective} / ${pair.perfective}`,
     prompt: onlyMarkers
       ? `Quel aspect « ${marker} » impose-t-il ?`
       : "Processus en cours, ou résultat atteint ?",
@@ -522,6 +528,7 @@ function futureExercise(random: Rng, forced?: FutureContext): AspectExercise {
   return {
     skill: "future",
     itemId: `future:${context.id}:${pair.id}`,
+    lemma: `${pair.imperfective} / ${pair.perfective}`,
     prompt: "Occupation à venir, ou résultat promis ?",
     sentence: context.template,
     sentenceFr: context.fr,
@@ -702,6 +709,7 @@ function imperativeExercise(random: Rng, forced?: ImperativeContext): AspectExer
   return {
     skill: "imperative",
     itemId: `imperative:${context.id}:${pair.id}`,
+    lemma: `${pair.imperfective} / ${pair.perfective}`,
     prompt: "Quelle forme de l'impératif ?",
     sentence: context.template,
     sentenceFr: context.fr,

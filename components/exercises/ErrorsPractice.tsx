@@ -313,7 +313,7 @@ function spokenFor(item: ErrorItem): string | null {
 }
 
 function Blank() {
-  return <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>;
+  return <span className="blank inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>;
 }
 
 function WithBlank({ text }: { text: string }) {
@@ -323,6 +323,16 @@ function WithBlank({ text }: { text: string }) {
       {before}
       {text.includes("___") && <Blank />}
       {after}
+    </p>
+  );
+}
+
+/** La traduction, suivie du mot à placer sous sa forme du dictionnaire — comme dans chaque module. */
+function SentenceFr({ text, lemma }: { text: string; lemma?: string }) {
+  return (
+    <p className="mt-1 font-display text-sm italic text-muted">
+      {text}
+      {lemma && <span className="ml-2 not-italic text-accent2">({lemma})</span>}
     </p>
   );
 }
@@ -354,7 +364,7 @@ function ErrorQuestion({ item }: { item: ErrorItem }) {
             </figure>
           )}
           {source.exercise.sentence && <WithBlank text={source.exercise.sentence} />}
-          <p className="mt-1 font-display text-sm italic text-muted">{source.exercise.sentenceFr}</p>
+          <SentenceFr text={source.exercise.sentenceFr} lemma={source.exercise.lemma} />
         </>
       ) : source.module === "motion" ? (
         <>
@@ -368,7 +378,7 @@ function ErrorQuestion({ item }: { item: ErrorItem }) {
             </figure>
           )}
           {source.exercise.sentence && <WithBlank text={source.exercise.sentence} />}
-          <p className="mt-1 font-display text-sm italic text-muted">{source.exercise.sentenceFr}</p>
+          <SentenceFr text={source.exercise.sentenceFr} lemma={source.exercise.lemma} />
         </>
       ) : source.module === "participles" ? (
         <>
@@ -382,7 +392,7 @@ function ErrorQuestion({ item }: { item: ErrorItem }) {
             </div>
           )}
           {source.exercise.compressed && <WithBlank text={source.exercise.compressed} />}
-          <p className="mt-1 font-display text-sm italic text-muted">{source.exercise.sentenceFr}</p>
+          <SentenceFr text={source.exercise.sentenceFr} lemma={source.exercise.lemma} />
         </>
       ) : source.module === "adjectives" ? (
         <>
@@ -390,7 +400,7 @@ function ErrorQuestion({ item }: { item: ErrorItem }) {
             Accorde avec :<span className="text-text">{source.exercise.nounLabel}</span>
           </p>
           <WithBlank text={source.exercise.sentence} />
-          <p className="mt-1 font-display text-sm italic text-muted">{source.exercise.sentenceFr}</p>
+          <SentenceFr text={source.exercise.sentenceFr} lemma={source.exercise.lemma} />
         </>
       ) : (
         <>

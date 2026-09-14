@@ -70,6 +70,11 @@ export interface ParticipleExercise {
   /** Phrase comprimée, avec ___ à la place de la forme cherchée. */
   compressed: string;
   sentenceFr: string;
+  /**
+   * Le verbe dont on cherche une forme, à l'infinitif. Les options sont
+   * toutes tirées de lui : le nommer ne dit pas laquelle choisir.
+   */
+  lemma?: string;
   options: string[];
   correctIndex: number;
   explain: string;
@@ -259,6 +264,7 @@ function activeExercise(random: Rng, forced?: ActiveContext): ParticipleExercise
   return {
     skill: "active",
     itemId: `active:${context.id}`,
+    lemma: verb.imperfective,
     prompt: "Comprime la relative en participe",
     expanded: context.expanded,
     compressed: context.compressed,
@@ -429,6 +435,8 @@ function passiveExercise(random: Rng, forced?: PassiveContext): ParticipleExerci
   return {
     skill: "passive",
     itemId: `passive:${context.id}`,
+    // Le participe passif se forme sur le perfectif : напи́санный, de написа́ть.
+    lemma: verb.perfective ?? verb.imperfective,
     prompt: "Comprime la relative en participe passif",
     expanded: context.expanded,
     compressed: context.compressed,
@@ -579,6 +587,7 @@ function shortExercise(random: Rng, forced?: ShortContext): ParticipleExercise {
   return {
     skill: "short",
     itemId: `short:${context.id}`,
+    lemma: verb.perfective ?? verb.imperfective,
     prompt: "Attribut ou épithète ?",
     compressed: context.sentence,
     sentenceFr: context.fr,
@@ -722,6 +731,9 @@ function gerundExercise(random: Rng, forced?: GerundContext): ParticipleExercise
   return {
     skill: "gerund",
     itemId: `gerund:${context.id}`,
+    // Les deux membres de la paire : c'est l'aspect qu'on choisit ici, en
+    // nommer un seul donnerait la réponse.
+    lemma: verb.perfective ? `${verb.imperfective} / ${verb.perfective}` : verb.imperfective,
     prompt: "Actions simultanées, ou l'une avant l'autre ?",
     expanded: context.expanded,
     compressed: context.compressed,

@@ -80,7 +80,14 @@ export default function PracticeCard<T extends ChoiceExercise>({
   const endOfSeries = !session.isRetry && session.answered >= session.seriesLength;
 
   return (
-    <div className="overflow-hidden rounded-[20px] surface shadow-float">
+    // LA COULEUR DU MODULE DESCEND JUSQU'AUX COMMANDES. Elle ne teintait que le
+    // bandeau : dessous, la pastille « Écrire », le trait du trou, le champ et
+    // « Vérifier » restaient bleus. `.case-tint` (globals.css) la fait lire à
+    // tout ce qui est dessous — sauf au mélange des cas, qui a son dégradé.
+    <div
+      className={`${tint === "mix" ? "" : "case-tint"} overflow-hidden rounded-[20px] surface shadow-float`}
+      style={tint === "mix" ? undefined : ({ "--case": color } as React.CSSProperties)}
+    >
       <div
         className="relative flex items-center justify-between gap-3 px-5 py-3 text-white sm:px-6 sm:py-3.5"
         style={{ background: color }}
@@ -225,7 +232,7 @@ export function ChoiceOptions({
                 ? "border-success bg-success/10 text-success"
                 : isWrongPick
                   ? "border-danger bg-danger/10 text-danger"
-                  : "border-border bg-bg text-text hover:border-accent/35 hover:bg-accent/10"
+                  : "option-tint border-border bg-bg text-text hover:border-accent/35 hover:bg-accent/10"
             } disabled:cursor-default`}
           >
             {option}
@@ -456,7 +463,7 @@ export function AnswerModeToggle({
             aria-checked={mode === m}
             onClick={() => onChange(m)}
             className={`rounded-full px-3.5 py-1.5 font-display text-xs font-semibold transition-colors ${
-              mode === m ? "bg-accent text-white" : "text-muted hover:text-text"
+              mode === m ? "mode-tint bg-accent text-white" : "text-muted hover:text-text"
             }`}
           >
             {m === "choice" ? "Choisir" : "Écrire"}

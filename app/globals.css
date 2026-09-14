@@ -1716,20 +1716,85 @@ button:disabled,
     inset -3px -3px 11px -4px color-mix(in oklab, var(--mix-f) 76%, transparent);
 }
 
-/* Le bouton, posé après `.btn-primary` comme `.btn-case` : il en garde la
-   mécanique et ne change que la couleur. Un léger ombrage du texte le garde
-   lisible là où le dégradé passe sur l'ambre du datif. */
+/* Le bouton du mélange, posé après `.btn-primary` : il en garde la mécanique
+   (balayage, appui) et ne change que la couleur. Le dégradé vif du thème —
+   voir lib/grammar/case-mix-style.ts pour pourquoi il ne récite pas les six
+   cas —, une arête claire au lieu d'une bordure sombre, et une lumière portée
+   par ses deux extrémités, violette d'un côté, ambre de l'autre. */
 .btn-mix {
   background-image: var(--mix);
-  border-color: color-mix(in oklab, var(--mix-f) 70%, black);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+  border-color: rgba(255, 255, 255, 0.18);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    -4px 8px 20px -12px color-mix(in oklab, var(--mix-a) 85%, transparent),
+    4px 8px 20px -12px color-mix(in oklab, var(--mix-f) 80%, transparent);
 }
 
 .btn-mix:hover {
+  filter: brightness(1.07) saturate(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    -8px 12px 28px -12px color-mix(in oklab, var(--mix-a) 90%, transparent),
+    8px 12px 28px -12px color-mix(in oklab, var(--mix-f) 85%, transparent);
+}
+
+/* ─── La couleur du module, jusque dans les commandes ────────────────
+   Les pages de cas teintaient déjà leur champ, leur bouton et leurs
+   pastilles. Les autres exercices ne portaient leur couleur que sur le
+   bandeau : dessous, la pastille « Écrire », le trait du trou, la lumière
+   du champ et « Vérifier » restaient bleus — l'accord de l'adjectif en
+   ambre, ses commandes en bleu. PracticeCard pose désormais `.case-tint`
+   avec la couleur de son module ; ces règles la font descendre. Le vert et
+   le rouge de la correction ne sont jamais recouverts. */
+.case-tint .btn-primary:not(.btn-mix) {
+  background-image: linear-gradient(135deg, var(--case-hi) 0%, var(--case) 42%, var(--case-edge) 100%);
+  border-color: var(--case-edge);
+}
+
+.case-tint .btn-primary:not(.btn-mix):hover {
   box-shadow:
     var(--shadow-sm),
-    0 8px 22px -12px color-mix(in oklab, var(--mix-c) 70%, transparent),
+    0 8px 22px -12px color-mix(in oklab, var(--case) 70%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.case-tint .mode-tint {
+  background-color: transparent;
+  background-image: linear-gradient(135deg, var(--case-hi) 0%, var(--case) 42%, var(--case-edge) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 4px 12px -9px color-mix(in oklab, var(--case) 70%, transparent);
+}
+
+.case-tint .blank {
+  border-bottom-color: var(--case);
+}
+
+.case-tint .option-tint:not(:disabled):hover {
+  border-color: color-mix(in oklab, var(--case) 45%, var(--color-border));
+  background-color: color-mix(in oklab, var(--case) 10%, transparent);
+}
+
+.case-tint .field-focus:not(.border-success):not(.border-danger):not(.field-mix) {
+  border-color: color-mix(in oklab, var(--case) 24%, var(--color-border));
+}
+
+.case-tint .field-focus:not(.border-success):not(.border-danger):not(.field-mix):focus,
+.case-tint .field-focus:not(.border-success):not(.border-danger):not(.field-mix):focus-visible {
+  border-color: color-mix(in oklab, var(--case) 44%, var(--color-border));
+  box-shadow:
+    inset 3px 3px 10px -4px color-mix(in oklab, var(--case-glow) 76%, transparent),
+    inset -3px -3px 11px -4px color-mix(in oklab, var(--case) 82%, transparent),
+    inset 0 0 0 1px color-mix(in oklab, var(--case) 32%, transparent);
+}
+
+/* Le mélange des cas : les autres boutons principaux de sa carte (« Suivant »,
+   le bilan) prennent son dégradé, comme « Vérifier ». */
+.mix-tint .btn-primary:not(.btn-mix) {
+  background-image: var(--mix);
+  border-color: rgba(255, 255, 255, 0.18);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
 }
 
 /* En thème clair, la marque Pro ne projette rien — même raison que pour le

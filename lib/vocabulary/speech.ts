@@ -69,6 +69,18 @@ export function speak(text: string, lang: string, rate = 1) {
 export type SpeechLang = "ru" | "fr";
 
 /**
+ * LE DÉBIT DE CHAQUE VOIX, APPLIQUÉ À LA LECTURE ET NON À LA SYNTHÈSE.
+ *
+ * La voix russe lit au rythme d'un natif : pour une oreille qui apprend,
+ * les syllabes se fondent. Ralentir côté ElevenLabs (`speed`) changerait la
+ * clé de cache et referait payer chaque mot déjà synthétisé ; ralentir la
+ * lecture ne coûte rien, vaut pour tous les fichiers existants, et le
+ * navigateur garde la hauteur de la voix (`preservesPitch`). Le français,
+ * langue de l'apprenant, reste au débit normal.
+ */
+export const SPEECH_RATE: Record<SpeechLang, number> = { ru: 0.8, fr: 1 };
+
+/**
  * URL connue par (langue, texte). `null` = déjà tenté, indisponible : on ne
  * redemande pas. La langue fait partie de la clé parce que la voix en
  * dépend — sans elle, « merci » lu par la voix russe serait servi au
@@ -154,11 +166,14 @@ async function resolveAudioUrl(lang: SpeechLang, text: string): Promise<string |
 export async function speakIn(
   lang: SpeechLang,
   text: string,
-  /** `rate` < 1 ralentit la lecture — pour réentendre un mot syllabe par syllabe. */
+  /**
+   * `rate` < 1 ralentit encore la lecture — pour réentendre un mot syllabe
+   * par syllabe. Relatif au débit de la langue (SPEECH_RATE).
+   */
   options: { rate?: number } = {}
 ) {
   if (typeof window === "undefined") return;
-  const rate = options.rate ?? 1;
+  const rate = SPEECH_RATE[lang] * (options.rate ?? 1);
 
   // Coupe la prononciation précédente, quelle que soit sa source — et
   // celles qui attendent encore leur fichier.
@@ -178,8 +193,7 @@ export async function speakIn(
   }
 
   try {
-    const audio = new Audio(url);
-    audio.playbackRate = rate;
+    const audio = atRate(new Audio(url), rate);
     currentAudio = audio;
     await audio.play();
   } catch {
@@ -189,6 +203,17 @@ export async function speakIn(
     currentAudio = null;
     speak(text, lang === "ru" ? "ru-RU" : "fr-FR", rate);
   }
+}
+
+/**
+ * Règle le débit d'un fichier audio. `defaultPlaybackRate` aussi : le
+ * chargement du fichier remet `playbackRate` à cette valeur-là.
+ */
+function atRate(audio: HTMLAudioElement, rate: number): HTMLAudioElement {
+  audio.defaultPlaybackRate = rate;
+  audio.playbackRate = rate;
+  audio.preservesPitch = true;
+  return audio;
 }
 
 /** Numéro de la dernière demande de lecture : une réponse plus ancienne se tait. */
@@ -242,6 +267,7 @@ export async function speakRuToEnd(text: string): Promise<boolean> {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "ru-RU";
+        utterance.rate = SPEECH_RATE.ru;
         utterance.onend = () => resolve(mine === speechGeneration);
         utterance.onerror = () => resolve(mine === speechGeneration);
         window.speechSynthesis.speak(utterance);
@@ -254,7 +280,7 @@ export async function speakRuToEnd(text: string): Promise<boolean> {
   if (mine !== speechGeneration) return false;
   if (!url) return viaBrowser();
 
-  const audio = new Audio(url);
+  const audio = atRate(new Audio(url), SPEECH_RATE.ru);
   currentAudio = audio;
   const ended = new Promise<boolean>((resolve) => {
     audio.onended = () => resolve(mine === speechGeneration);

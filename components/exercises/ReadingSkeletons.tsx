@@ -63,6 +63,8 @@ export function ReadingHubSkeleton() {
         </p>
 
         <div className="mb-12 rounded-[20px] border border-dashed border-accent/30 bg-accent/5 p-6">
+          {/* « Générer un texte » / « Coller mon texte ». */}
+          <span className="skeleton mb-5 block h-[38px] w-[258px] max-w-full rounded-full" />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="font-display text-lg">

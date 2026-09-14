@@ -214,6 +214,14 @@ for (const skill of X.MOTION_SKILLS) {
     const ex = X.generateMotionExercise(skill.id);
     seenItems.add(ex.itemId);
     const answer = ex.options[ex.correctIndex];
+    // Uni- ou multidirectionnel : le trou nomme la paire. Le mode de
+    // déplacement, lui, ne nomme rien — le verbe y est la réponse.
+    if (skill.id === "direction" && !ex.lemma?.includes(" / ")) {
+      failures.push(`direction › ${ex.itemId} : phrase à trou sans la paire du verbe`);
+    }
+    if (ex.lemma && ex.options.includes(ex.lemma)) {
+      failures.push(`${skill.id} › ${ex.itemId} : l'indice « ${ex.lemma} » est une des options`);
+    }
 
     if (
       ex.options.length < 2 ||
