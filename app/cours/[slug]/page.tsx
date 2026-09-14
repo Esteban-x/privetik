@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { findLesson, LESSONS, neighbours } from "@/lib/courses/catalog";
 import LessonBody, { sectionAnchor } from "@/components/courses/LessonBody";
 import { LessonReadToggle, ReadingProgress } from "@/components/courses/LessonTools";
+import LessonQuiz from "@/components/courses/LessonQuiz";
+import { buildLessonQuiz } from "@/lib/courses/quiz";
 import { LevelChip } from "@/components/courses/CourseExplorer";
 import type { Section } from "@/lib/courses/types";
 import JsonLd from "@/components/seo/JsonLd";
@@ -65,6 +67,8 @@ export default async function LessonPage({ params }: { params: Promise<{ slug: s
 
   const { lesson, unit } = found;
   const { previous, next } = neighbours(slug);
+  // Calculé au prérendu, semé par le slug : le même quiz pour tous.
+  const quiz = buildLessonQuiz(lesson, unit);
   const toc = lesson.sections
     .map((section, i) => ({ label: tocLabel(section), anchor: sectionAnchor(i) }))
     .filter((entry): entry is { label: string; anchor: string } => entry.label !== null);
@@ -145,6 +149,9 @@ export default async function LessonPage({ params }: { params: Promise<{ slug: s
             </header>
 
             <LessonBody sections={lesson.sections} />
+
+            {/* ── Se tester avant de cocher ─────────────────────── */}
+            {quiz.length > 0 && <LessonQuiz slug={lesson.slug} questions={quiz} />}
 
             {/* ── Aller travailler ce qu'on vient de lire ──────── */}
             {lesson.practice && lesson.practice.length > 0 && (

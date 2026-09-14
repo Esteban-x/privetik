@@ -208,6 +208,51 @@ for (const unit of UNITS) {
   }
 }
 
+// ── Quiz de fin de leçon ────────────────────────────────────────
+// Rejoue exactement ce que la page sert (tirage semé par le slug) : une
+// question dont la bonne réponse manque, ou deux options identiques, serait
+// une question fausse posée à tous les lecteurs.
+const Q = await jiti.import("../lib/courses/quiz.ts");
+let quizzes = 0;
+let quizQuestions = 0;
+let bankQuestions = 0;
+// Distinctes à la lettre près : un exercice d'accent tonique n'oppose que
+// des accents, c'est voulu.
+const plain = (s) => s.trim();
+for (const { lesson, unit } of LESSONS) {
+  const l = `${unit.slug}/${lesson.slug}`;
+  const quiz = Q.buildLessonQuiz(lesson, unit);
+  require_(
+    JSON.stringify(quiz) === JSON.stringify(Q.buildLessonQuiz(lesson, unit)),
+    `${l} : le quiz n'est pas déterministe`
+  );
+  // Une phrase répétée (même russe, autre intonation) ne fait pas une question.
+  const ruList = lesson.sections.filter((s) => s.kind === "examples").flatMap((s) => s.items.map((i) => i.ru.replace(/́/g, "")));
+  const examples = ruList.filter((ru) => ruList.indexOf(ru) === ruList.lastIndexOf(ru)).length;
+  if (examples >= 3 || (lesson.practice ?? []).some((p) => Q.skillsForLink(p.href, lesson.level).length > 0)) {
+    require_(quiz.length >= Q.QUIZ_MIN, `${l} : pas de quiz (${quiz.length} question(s)) alors que la leçon a de quoi en faire un`);
+  }
+  if (quiz.length > 0) quizzes += 1;
+  const ids = new Set();
+  for (const q of quiz) {
+    quizQuestions += 1;
+    if (!q.id.startsWith("example:")) bankQuestions += 1;
+    const where = `${l} · ${q.id}`;
+    require_(!ids.has(q.question), `${where} : question en double`);
+    ids.add(q.question);
+    require_(q.question.trim().length > 0 && q.prompt.trim().length > 0, `${where} : question ou consigne vide`);
+    // Deux options existent dans les banques : forme courte ou longue, actif ou passif.
+    require_(q.options.length >= 2 && q.options.length <= 4, `${where} : ${q.options.length} options`);
+    require_(q.correctIndex >= 0 && q.correctIndex < q.options.length, `${where} : bonne réponse hors des options`);
+    require_(new Set(q.options.map(plain)).size === q.options.length, `${where} : options identiques (${q.options.join(" / ")})`);
+    for (const form of Object.keys(q.whyNot ?? {})) {
+      require_(q.options.includes(form) && form !== q.options[q.correctIndex], `${where} : note sur « ${form} », qui n'est pas un leurre affiché`);
+    }
+  }
+}
+require_(quizzes >= 110, `seulement ${quizzes} leçons ont un quiz`);
+require_(bankQuestions >= 100, `seulement ${bankQuestions} questions tirées des banques d'exercices`);
+
 require_(LESSONS.length === TOTAL_LESSONS, "TOTAL_LESSONS ne correspond pas au catalogue");
 require_(TOTAL_MINUTES > 0, "durée totale nulle");
 
@@ -221,6 +266,7 @@ console.log(
 console.log(
   `Par niveau : ${CEFR_LEVELS.map((l) => `${l} ${levelCount[l] ?? 0}`).join("  ")}`
 );
+console.log(`Quiz : ${quizzes} leçons, ${quizQuestions} questions (${bankQuestions} tirées des banques)`);
 
 if (failures.length > 0) {
   console.error(`\n${failures.length} problème(s) sur ${checks} contrôles :`);
