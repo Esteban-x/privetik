@@ -986,6 +986,33 @@ for (const text of T.READING_TEXTS) {
   expect("rien à réviser → rien", G.recommendReviewMode([], now), null);
 }
 
+// ─── 18. Les questions de compréhension ───────────────────────────
+// Écrites à la main : une bonne réponse hors des options, ou toujours à la
+// même place, ferait un quiz qu'on réussit sans lire.
+{
+  let total = 0;
+  const positions = new Set();
+  for (const text of T.READING_TEXTS) {
+    const label = `texte « ${text.title} »`;
+    const questions = text.questions ?? [];
+    require_(questions.length >= 3, `${label} : ${questions.length} question(s) de compréhension, 3 attendues`);
+    for (const q of questions) {
+      total += 1;
+      positions.add(q.answer);
+      require_(q.question.trim().endsWith("?") && isFrenchProse(q.question), `${label} : question « ${q.question} » mal formée`);
+      require_(q.options.length >= 3 && q.options.length <= 4, `${label} : « ${q.question} » a ${q.options.length} options`);
+      require_(
+        new Set(q.options.map((o) => o.trim().toLowerCase())).size === q.options.length,
+        `${label} : « ${q.question} » a des options en double`
+      );
+      require_(Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length, `${label} : « ${q.question} » : bonne réponse hors des options`);
+      require_(q.explain.trim().length >= 10, `${label} : « ${q.question} » sans explication`);
+    }
+  }
+  require_(positions.size >= 3, "compréhension : la bonne réponse est toujours à la même place");
+  console.log(`  compréhension : ${total} questions sur ${T.READING_TEXTS.length} textes`);
+}
+
 // ─── Rapport ───────────────────────────────────────────────────────
 
 if (failures.length) {

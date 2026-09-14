@@ -220,6 +220,60 @@ export const speakRu = (text: string) => speakIn("ru", text);
 export const speakFr = (text: string) => speakIn("fr", text);
 
 /**
+ * Prononce un texte russe et ne rend la main qu'À LA FIN de la lecture.
+ *
+ * `speakIn` rend la main dès que le son démarre : c'est ce qu'il faut à un
+ * bouton, pas à une lecture qui enchaîne les phrases d'un texte en
+ * surlignant celle qu'on entend. Renvoie `false` si une autre lecture — ou
+ * `stopSpeaking` — l'a interrompue : l'appelant s'arrête alors aussi.
+ */
+export async function speakRuToEnd(text: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  stopSpeaking();
+  const mine = speechGeneration;
+
+  const viaBrowser = () =>
+    new Promise<boolean>((resolve) => {
+      if (!("speechSynthesis" in window)) {
+        resolve(mine === speechGeneration);
+        return;
+      }
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "ru-RU";
+        utterance.onend = () => resolve(mine === speechGeneration);
+        utterance.onerror = () => resolve(mine === speechGeneration);
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        resolve(mine === speechGeneration);
+      }
+    });
+
+  const url = await resolveAudioUrl("ru", text);
+  if (mine !== speechGeneration) return false;
+  if (!url) return viaBrowser();
+
+  const audio = new Audio(url);
+  currentAudio = audio;
+  const ended = new Promise<boolean>((resolve) => {
+    audio.onended = () => resolve(mine === speechGeneration);
+    audio.onpause = () => {
+      if (!audio.ended) resolve(false);
+    };
+    audio.onerror = () => resolve(mine === speechGeneration);
+  });
+  try {
+    await audio.play();
+  } catch {
+    if (mine !== speechGeneration) return false;
+    currentAudio = null;
+    return viaBrowser();
+  }
+  return ended;
+}
+
+/**
  * Prépare l'audio du mot SUIVANT sans le jouer.
  *
  * En révision, le mot défile toutes les quelques secondes : sans ça, le

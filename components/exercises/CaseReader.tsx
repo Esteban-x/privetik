@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CaseWhy, GlossedWord, ReadingText } from "@/lib/reading/texts";
+import type { CaseWhy, ComprehensionQuestion, GlossedWord, ReadingText } from "@/lib/reading/texts";
 import { CASES, CASES_BY_LEARNING_ORDER } from "@/lib/grammar/cases";
 import type { CaseId, CaseInfo } from "@/lib/grammar/types";
 import { caseHint } from "@/lib/reading/case-hints";
 import { completeReadingText, explainSentenceCases } from "@/lib/reading/client";
 import { addReadingWord, READING_LIST_NAME, type AddWordState } from "@/lib/reading/add-to-vocab";
 import { isQuotaError, type QuotaInfo } from "@/lib/billing/quota-client";
-import { speakRu } from "@/lib/vocabulary/speech";
+import { speakRu, speakRuToEnd, stopSpeaking } from "@/lib/vocabulary/speech";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
 import AiSpark from "@/components/ui/AiSpark";
 import Button from "@/components/ui/Button";
@@ -41,7 +41,7 @@ import { CheckIcon, CrossIcon } from "@/components/ui/icons";
  * L'écran dit toujours laquelle il montre.
  */
 
-type Mode = "read" | "quiz";
+type Mode = "read" | "quiz" | "understand";
 
 type SentenceHelp =
   | { status: "loading" }
@@ -102,6 +102,12 @@ export default function CaseReader({
   // Par forme du dictionnaire : le même mot touché deux fois dans le texte
   // dit déjà qu'il est ajouté.
   const [added, setAdded] = useState<Record<string, AddWordState>>({});
+  // La phrase qu'on entend pendant la lecture du texte entier.
+  const [playing, setPlaying] = useState<number | null>(null);
+  // Réponses aux questions de compréhension : la première compte.
+  const [understood, setUnderstood] = useState<Record<number, number>>({});
+  const questions = text.questions ?? [];
+  const understoodCount = questions.filter((q, i) => understood[i] === q.answer).length;
 
   async function addToVocabulary(lemma: string, word: GlossedWord, sentence: GlossedWord[], translation: string | null | undefined) {
     if (added[lemma]?.status === "adding") return;
@@ -126,6 +132,8 @@ export default function CaseReader({
     setAnswers({});
     setHelp({});
     setCompletion("idle");
+    setPlaying(null);
+    setUnderstood({});
   }
 
   const tagged = useMemo(
@@ -191,6 +199,32 @@ export default function CaseReader({
     setHighlight(null);
   }
 
+  /**
+   * LE TEXTE ENTIER, À VOIX HAUTE. Chaque phrase avait son bouton ; on
+   * n'entendait jamais le texte d'un trait, avec son rythme — or c'est ainsi
+   * qu'on l'entendra ailleurs. Phrase par phrase (la synthèse ne prend que
+   * des phrases courtes), la phrase entendue surlignée. Toucher à nouveau
+   * arrête ; toute autre lecture aussi.
+   */
+  async function listenAll() {
+    if (playing !== null) {
+      stopSpeaking();
+      setPlaying(null);
+      return;
+    }
+    for (let s = 0; s < text.sentences.length; s += 1) {
+      const line = text.sentences[s].map((x) => x.ru).join(" ");
+      if (line.length > SENTENCE_AUDIO_MAX) continue;
+      setPlaying(s);
+      const finished = await speakRuToEnd(line);
+      if (!finished) {
+        setPlaying(null);
+        return;
+      }
+    }
+    setPlaying(null);
+  }
+
   function answer(key: string, caseId: CaseId) {
     // La première réponse compte : on ne corrige pas après avoir vu la solution.
     setAnswers((prev) => (prev[key] ? prev : { ...prev, [key]: caseId }));
@@ -238,7 +272,9 @@ export default function CaseReader({
 
   function renderWord(word: GlossedWord, s: number, w: number) {
     const key = keyOf(s, w);
-    if (!word.gloss) return <span key={key}>{word.ru} </span>;
+    // En « Comprendre », le texte se lit sans aide : un mot touché donnerait
+    // sa traduction et celle de la phrase — c'est-à-dire la réponse.
+    if (!word.gloss || mode === "understand") return <span key={key}>{word.ru} </span>;
 
     const isActive = active?.s === s && active?.w === w;
     const info = word.case ? CASE_BY_ID[word.case] : undefined;
@@ -284,7 +320,7 @@ export default function CaseReader({
             aria-label="Façon de lire le texte"
             className="inline-flex rounded-[10px] border border-border bg-bg p-1"
           >
-            {(["read", "quiz"] as const).map((m) => (
+            {(questions.length > 0 ? (["read", "quiz", "understand"] as const) : (["read", "quiz"] as const)).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -295,18 +331,35 @@ export default function CaseReader({
                   mode === m ? "bg-accent text-white" : "text-muted hover:text-text"
                 }`}
               >
-                {m === "read" ? "Lire" : "Deviner les cas"}
+                {m === "read" ? "Lire" : m === "quiz" ? "Deviner les cas" : "Comprendre"}
               </button>
             ))}
           </div>
         )}
-        {!noCases && (
-          <p className="font-display text-xs font-semibold text-muted">
-            {mode === "quiz"
-              ? `${foundCount} / ${quizItems.length} trouvé${foundCount > 1 ? "s" : ""}`
-              : `${tagged.length} mot${tagged.length > 1 ? "s" : ""} décliné${tagged.length > 1 ? "s" : ""}`}
-          </p>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={listenAll}
+            aria-pressed={playing !== null}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-display text-xs font-semibold transition-colors ${
+              playing !== null
+                ? "border-accent bg-accent/10 text-accent-ink"
+                : "border-border text-muted hover:border-accent/35 hover:text-text"
+            }`}
+          >
+            <span aria-hidden>{playing !== null ? "■" : "▶"}</span>
+            {playing !== null ? "Arrêter" : "Écouter le texte"}
+          </button>
+          {!noCases && (
+            <p className="font-display text-xs font-semibold text-muted">
+              {mode === "quiz"
+                ? `${foundCount} / ${quizItems.length} trouvé${foundCount > 1 ? "s" : ""}`
+                : mode === "understand"
+                  ? `${understoodCount} / ${questions.length} compris`
+                  : `${tagged.length} mot${tagged.length > 1 ? "s" : ""} décliné${tagged.length > 1 ? "s" : ""}`}
+            </p>
+          )}
+        </div>
       </div>
 
       {!noCases && mode === "read" && (
@@ -393,7 +446,11 @@ export default function CaseReader({
           const aiWords = state?.status === "done" ? state.words : undefined;
           return (
             <div key={s}>
-              <p>{sentence.map((word, w) => renderWord(word, s, w))}</p>
+              <p
+                className={`-mx-2 rounded-lg px-2 transition-colors duration-300 ${playing === s ? "bg-accent/10" : ""}`}
+              >
+                {sentence.map((word, w) => renderWord(word, s, w))}
+              </p>
               {activeWord && active && (
                 <WordPanel
                   panelRef={panelRef}
@@ -428,6 +485,14 @@ export default function CaseReader({
         })}
       </div>
 
+      {mode === "understand" && questions.length > 0 && (
+        <ComprehensionPanel
+          questions={questions}
+          picks={understood}
+          onPick={(q, option) => setUnderstood((prev) => (q in prev ? prev : { ...prev, [q]: option }))}
+        />
+      )}
+
       {!readOnly && (
         <div className="flex justify-end border-t border-border px-5 py-4 sm:px-8">
           {completion === "done" ? (
@@ -448,6 +513,83 @@ export default function CaseReader({
 }
 
 /** L'analyse d'un mot, ouverte sous sa phrase. */
+/**
+ * « Comprendre » : des questions sur le sens, après la lecture.
+ *
+ * On pouvait trouver tous les cas d'un texte sans avoir saisi qui fait quoi.
+ * La première réponse compte ; l'explication cite la phrase qui répondait.
+ */
+function ComprehensionPanel({
+  questions,
+  picks,
+  onPick,
+}: {
+  questions: ComprehensionQuestion[];
+  picks: Record<number, number>;
+  onPick: (question: number, option: number) => void;
+}) {
+  const answered = Object.keys(picks).length;
+  const good = questions.filter((q, i) => picks[i] === q.answer).length;
+  return (
+    <div className="border-t border-border px-5 py-6 sm:px-8">
+      <p className="font-display text-sm leading-relaxed text-muted">
+        Lis le texte ci-dessus sans aide, puis réponds. La première réponse compte.
+      </p>
+      <ol className="mt-4 space-y-5">
+        {questions.map((q, i) => {
+          const picked = picks[i];
+          return (
+            <li key={i}>
+              <p className="font-display text-base font-bold">
+                {i + 1}. {q.question}
+              </p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {q.options.map((option, o) => {
+                  const state =
+                    picked === undefined
+                      ? "border-border hover:border-accent/35 hover:bg-accent/10"
+                      : o === q.answer
+                        ? "border-success bg-success/10 text-success"
+                        : o === picked
+                          ? "border-danger bg-danger/10 text-danger"
+                          : "border-border opacity-60";
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      disabled={picked !== undefined}
+                      onClick={() => onPick(i, o)}
+                      className={`rounded-xl border px-3 py-2 text-left font-display text-sm font-semibold transition-colors ${state}`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+              {picked !== undefined && (
+                <p className="mt-2 font-display text-sm leading-relaxed text-muted">
+                  <span className={`font-semibold ${picked === q.answer ? "text-success" : "text-danger"}`}>
+                    {picked === q.answer ? "Oui." : "Non."}
+                  </span>{" "}
+                  {q.explain}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {answered === questions.length && (
+        <p role="status" className="mt-5 font-display text-sm font-semibold">
+          {good} / {questions.length} —{" "}
+          {good === questions.length
+            ? "le sens est là."
+            : "relis les phrases citées : c'est là que le sens t'a échappé."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function AddWordButton({ state, onAdd }: { state: AddWordState | undefined; onAdd: () => void }) {
   if (state?.status === "added" || state?.status === "duplicate") {
     return (
