@@ -315,7 +315,7 @@ export function ReviewHubSkeleton() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4].map((i) => (
             <div key={i} className="flex gap-4 rounded-2xl surface p-5">
               <span className="skeleton h-11 w-11 shrink-0 rounded-xl" />
               <div className="min-w-0 flex-1">

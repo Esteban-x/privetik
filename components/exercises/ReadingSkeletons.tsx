@@ -119,9 +119,12 @@ export function ReadingTextSkeleton() {
 
         <div className="rounded-[20px] surface shadow-float">
           <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5 sm:px-8">
-            <span className="skeleton h-[34px] w-[172px] rounded-[10px]" />
-            <span className="font-display text-xs">
-              <Line className="w-24" />
+            <span className="skeleton h-[34px] w-[258px] max-w-[60%] rounded-[10px]" />
+            <span className="flex items-center gap-3">
+              <span className="skeleton h-[26px] w-[118px] rounded-lg" />
+              <span className="hidden font-display text-xs sm:inline">
+                <Line className="w-20" />
+              </span>
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5 px-5 pt-4 sm:px-8">

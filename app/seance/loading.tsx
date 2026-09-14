@@ -1,6 +1,6 @@
-import PageSkeleton from "@/components/ui/PageSkeleton";
+import { DailySessionSkeleton } from "@/components/ui/PageSkeletons";
 
-// Voir components/ui/PageSkeleton.tsx : autorise Next à précharger la route.
-export default function SeanceLoading() {
-  return <PageSkeleton variant="hub" width="max-w-3xl" />;
+// Le squelette de CETTE page — voir components/ui/PageSkeletons.tsx.
+export default function DailySessionLoading() {
+  return <DailySessionSkeleton />;
 }

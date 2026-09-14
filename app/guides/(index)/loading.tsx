@@ -1,8 +1,6 @@
-import PageSkeleton from "@/components/ui/PageSkeleton";
+import { GuidesHubSkeleton } from "@/components/ui/PageSkeletons";
 
-// Voir components/ui/PageSkeleton.tsx : ce fichier ne sert pas qu'à
-// remplir l'écran, il autorise Next à PRÉCHARGER cette route dynamique et
-// donc à basculer dessus au clic, sans attendre le serveur.
-export default function GuidesLoading() {
-  return <PageSkeleton variant="hub" width="max-w-3xl" />;
+// Le squelette de CETTE page — voir components/ui/PageSkeletons.tsx.
+export default function GuidesHubLoading() {
+  return <GuidesHubSkeleton />;
 }

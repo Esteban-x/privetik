@@ -38,10 +38,19 @@ export function ReadingProgress() {
   }, []);
 
   return (
+    // PAS LA CLASSE `.btn`. Elle servait à emprunter le dégradé du bouton
+    // principal, mais `.btn` pose `position: relative` et `inline-flex`, qui
+    // l'emportaient sur `fixed` : la barre ne restait pas en haut de l'écran,
+    // elle s'insérait dans la page et décalait toute la leçon de 24 px. Le
+    // dégradé est repris directement.
     <div
       aria-hidden
-      className="btn btn-primary btn-sheen fixed inset-x-0 top-0 z-50 h-0.5 origin-left transition-opacity duration-300"
-      style={{ transform: `scaleX(${progress})`, opacity: progress > 0.005 ? 1 : 0 }}
+      className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 origin-left transition-opacity duration-300"
+      style={{
+        backgroundImage: "var(--grad-accent)",
+        transform: `scaleX(${progress})`,
+        opacity: progress > 0.005 ? 1 : 0,
+      }}
     />
   );
 }

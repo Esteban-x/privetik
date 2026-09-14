@@ -1,8 +1,6 @@
-import PageSkeleton from "@/components/ui/PageSkeleton";
+import { PlacementSkeleton } from "@/components/ui/PageSkeletons";
 
-// Voir components/ui/PageSkeleton.tsx : ce fichier ne sert pas qu'à
-// remplir l'écran, il autorise Next à PRÉCHARGER cette route dynamique et
-// donc à basculer dessus au clic, sans attendre le serveur.
-export default function OnboardingLoading() {
-  return <PageSkeleton variant="practice" width="max-w-2xl" />;
+// Le squelette de CETTE page — voir components/ui/PageSkeletons.tsx.
+export default function PlacementLoading() {
+  return <PlacementSkeleton />;
 }
