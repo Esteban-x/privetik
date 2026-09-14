@@ -29,6 +29,12 @@ export const REVIEW_MODES = [
     desc: "Quatre propositions. Rapide, idéal pour un premier passage sur des mots neufs.",
   },
   {
+    mode: "cloze",
+    icon: "cloze",
+    label: "Phrases à trous",
+    desc: "Retrouve le mot à la forme que sa phrase exige. Pour les mots qui ont un exemple.",
+  },
+  {
     mode: "voice",
     icon: "voice",
     label: "Voix",
@@ -36,7 +42,14 @@ export const REVIEW_MODES = [
   },
 ] as const;
 
-export default function ReviewModeGrid({ listId }: { listId?: string }) {
+export default function ReviewModeGrid({
+  listId,
+  recommended,
+}: {
+  listId?: string;
+  /** Le mode conseillé pour la file du jour (lib/vocabulary/guided.ts). */
+  recommended?: { mode: string; reason: string } | null;
+}) {
   const query = listId ? `?list=${listId}` : "";
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -44,7 +57,9 @@ export default function ReviewModeGrid({ listId }: { listId?: string }) {
         <Link
           key={m.mode}
           href={`/vocabulary/${m.mode}${query}`}
-          className="group flex gap-4 rounded-2xl surface-interactive p-5 hover:-translate-y-0.5"
+          className={`group flex gap-4 rounded-2xl surface-interactive p-5 hover:-translate-y-0.5 ${
+            recommended?.mode === m.mode ? "ring-2 ring-accent/50" : ""
+          }`}
         >
           {/* Le pictogramme prend la couleur d'accent au survol EN MÊME
               TEMPS que son fond : deux propriétés, une seule transition, et
@@ -58,10 +73,17 @@ export default function ReviewModeGrid({ listId }: { listId?: string }) {
             <ModeIcon name={m.icon} />
           </span>
           <div className="min-w-0">
-            <h3 className="font-display text-base font-bold transition-colors group-hover:text-accent-ink">
+            <h3 className="flex flex-wrap items-center gap-2 font-display text-base font-bold transition-colors group-hover:text-accent-ink">
               {m.label}
+              {recommended?.mode === m.mode && (
+                <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-bold text-accent-ink">
+                  Conseillé aujourd&apos;hui
+                </span>
+              )}
             </h3>
-            <p className="mt-0.5 font-display text-sm leading-snug text-muted">{m.desc}</p>
+            <p className="mt-0.5 font-display text-sm leading-snug text-muted">
+              {recommended?.mode === m.mode ? recommended.reason : m.desc}
+            </p>
           </div>
         </Link>
       ))}
@@ -77,5 +99,13 @@ export function ModeIcon({ name }: { name: (typeof REVIEW_MODES)[number]["icon"]
   if (name === "flashcards") return <CardsIcon className={className} />;
   if (name === "typing") return <ListIcon className={className} />;
   if (name === "qcm") return <CheckIcon className={className} />;
+  if (name === "cloze") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={className} aria-hidden>
+        <path d="M3 8h4M17 8h4M3 16h7M14 16h7" />
+        <path d="M9 9.5h6" strokeDasharray="2 2" />
+      </svg>
+    );
+  }
   return <MicIcon className={className} />;
 }

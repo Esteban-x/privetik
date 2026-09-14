@@ -4,6 +4,7 @@ import { getAnthropic, MODEL_FAST, textFromMessage, parseJsonResponse } from "@/
 import { consumeQuota, recordTokens } from "@/lib/ai/quota";
 import { translationVerificationPrompt } from "@/lib/ai/prompts";
 import { matchesAnswer } from "@/lib/vocabulary/answer-check";
+import { clozeOf } from "@/lib/vocabulary/cloze";
 import { recordVocabReview } from "@/lib/vocabulary/record-review";
 import { allowPractice } from "@/lib/practice/quota";
 import type { Quality } from "@/lib/srs/sm2";
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
   const cardId = typeof body.cardId === "string" ? body.cardId : "";
   const userAnswer = typeof body.userAnswer === "string" ? body.userAnswer.slice(0, 200) : "";
   const expectedLanguage = body.expectedLanguage === "fr" ? "fr" : "ru";
-  const mode = body.mode === "qcm" ? "qcm" : "typing";
+  const mode = body.mode === "qcm" ? "qcm" : body.mode === "cloze" ? "cloze" : "typing";
   const revealed = body.revealed === true;
 
   if (!cardId) return NextResponse.json({ error: "cardId requis" }, { status: 400 });
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
   // jamais l'attendu, et ne peut pas non plus faire noter le mot d'un autre.
   const { data: word } = await supabase
     .from("vocab_words")
-    .select("ru, fr")
+    .select("ru, fr, example_ru")
     .eq("id", cardId)
     .eq("user_id", user.id)
     .single();
@@ -69,7 +70,15 @@ export async function POST(req: Request) {
   const gate = await allowPractice(supabase, "vocab_review");
   if (!gate.ok) return gate.response;
 
-  const expected = expectedLanguage === "ru" ? word.ru : word.fr;
+  // Phrase à trous : la forme que la phrase emploie, retrouvée par la même
+  // fonction que l'écran (lib/vocabulary/cloze.ts). Sans trou possible, la
+  // carte se juge comme en frappe vers le russe.
+  const expected =
+    mode === "cloze"
+      ? (clozeOf(word.ru, word.example_ru)?.answer ?? word.ru)
+      : expectedLanguage === "ru"
+        ? word.ru
+        : word.fr;
 
   let correct = false;
   let aiAccepted = false;

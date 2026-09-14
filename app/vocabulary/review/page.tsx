@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import SectionLabel from "@/components/ui/SectionLabel";
 import { fetchDailyProgress, fetchDueWords } from "@/lib/vocabulary/custom";
 import ReviewModeGrid from "@/components/vocabulary/ReviewModeGrid";
+import { recommendReviewMode, type Recommendation } from "@/lib/vocabulary/guided";
 
 const GOAL_OPTIONS = [10, 15, 25, 40];
 
@@ -17,6 +18,7 @@ export default function ReviewHubPage() {
     dueCount: number;
     knownCount: number;
     totalWords: number;
+    recommended: Recommendation | null;
   } | null>(null);
   const [queueFailed, setQueueFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -27,7 +29,12 @@ export default function ReviewHubPage() {
   useEffect(() => {
     fetchDueWords()
       .then((d) =>
-        setQueueInfo({ dueCount: d.dueCount, knownCount: d.knownCount, totalWords: d.totalWords })
+        setQueueInfo({
+          dueCount: d.dueCount,
+          knownCount: d.knownCount,
+          totalWords: d.totalWords,
+          recommended: recommendReviewMode(d.words, Date.now(), d.newAllowance ?? Infinity),
+        })
       )
       // UN ÉCHEC N'EST PAS « AUCUN MOT ». Il se traduisait par un compteur
       // à zéro, donc par « Aucun mot à réviser » et un bouton vers ses
@@ -178,7 +185,7 @@ export default function ReviewHubPage() {
           </Link>
         </div>
       ) : (
-        <ReviewModeGrid />
+        <ReviewModeGrid recommended={queueInfo?.recommended ?? null} />
       )}
     </div>
   );

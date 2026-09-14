@@ -7,6 +7,7 @@ import { CASES, CASES_BY_LEARNING_ORDER } from "@/lib/grammar/cases";
 import type { CaseId, CaseInfo } from "@/lib/grammar/types";
 import { caseHint } from "@/lib/reading/case-hints";
 import { completeReadingText, explainSentenceCases } from "@/lib/reading/client";
+import { addReadingWord, READING_LIST_NAME, type AddWordState } from "@/lib/reading/add-to-vocab";
 import { isQuotaError, type QuotaInfo } from "@/lib/billing/quota-client";
 import { speakRu } from "@/lib/vocabulary/speech";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
@@ -98,6 +99,21 @@ export default function CaseReader({
   const [answers, setAnswers] = useState<Record<string, CaseId>>({});
   const [help, setHelp] = useState<Record<number, SentenceHelp>>({});
   const [completion, setCompletion] = useState<"idle" | "saving" | "done">("idle");
+  // Par forme du dictionnaire : le même mot touché deux fois dans le texte
+  // dit déjà qu'il est ajouté.
+  const [added, setAdded] = useState<Record<string, AddWordState>>({});
+
+  async function addToVocabulary(lemma: string, word: GlossedWord, sentence: GlossedWord[], translation: string | null | undefined) {
+    if (added[lemma]?.status === "adding") return;
+    setAdded((map) => ({ ...map, [lemma]: { status: "adding" } }));
+    const outcome = await addReadingWord({
+      ru: lemma,
+      fr: word.gloss ?? "",
+      exampleRu: sentence.map((x) => x.ru).join(" "),
+      exampleFr: translation ?? undefined,
+    });
+    setAdded((map) => ({ ...map, [lemma]: outcome }));
+  }
 
   // Un nouveau texte repart de zéro — comparaison pendant le rendu plutôt
   // qu'un effet (même motif que `seenPathname` dans NavBar).
@@ -395,6 +411,16 @@ export default function CaseReader({
                   help={state}
                   canAskAi={canAskAi}
                   onExplain={() => explain(s)}
+                  canAddWord={!readOnly}
+                  added={added}
+                  onAdd={(lemma) =>
+                    addToVocabulary(
+                      lemma,
+                      activeWord,
+                      sentence,
+                      sentence[0]?.sentenceFr ?? (state?.status === "done" ? state.translation : null)
+                    )
+                  }
                 />
               )}
             </div>
@@ -422,6 +448,35 @@ export default function CaseReader({
 }
 
 /** L'analyse d'un mot, ouverte sous sa phrase. */
+function AddWordButton({ state, onAdd }: { state: AddWordState | undefined; onAdd: () => void }) {
+  if (state?.status === "added" || state?.status === "duplicate") {
+    return (
+      <p className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-success">
+        <CheckIcon className="h-3.5 w-3.5 shrink-0" />
+        {state.status === "added" ? `Ajouté à « ${READING_LIST_NAME} »` : "Déjà dans tes mots"}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={state?.status === "adding"}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[13px] font-semibold text-muted transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-accent-ink disabled:opacity-60"
+      >
+        <span aria-hidden>+</span>
+        {state?.status === "adding" ? "Ajout…" : "Ajouter à mes mots"}
+      </button>
+      {state?.status === "failed" && (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          {state.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function WordPanel({
   panelRef,
   sentence,
@@ -436,6 +491,9 @@ function WordPanel({
   help,
   canAskAi,
   onExplain,
+  canAddWord,
+  added,
+  onAdd,
 }: {
   panelRef: React.RefObject<HTMLDivElement | null>;
   sentence: GlossedWord[];
@@ -450,6 +508,9 @@ function WordPanel({
   help: SentenceHelp | undefined;
   canAskAi: boolean;
   onExplain: () => void;
+  canAddWord: boolean;
+  added: Record<string, AddWordState>;
+  onAdd: (lemma: string) => void;
 }) {
   const info = word.case ? CASE_BY_ID[word.case] : undefined;
   const bare = cleanWord(word.ru);
@@ -479,6 +540,11 @@ function WordPanel({
               </>
             )}
           </p>
+          {/* Seulement quand la forme du dictionnaire est connue : ajouter
+              « шко́ле » tel quel ferait réviser une forme, pas un mot. */}
+          {canAddWord && !asking && why?.lemma && word.gloss && (
+            <AddWordButton state={added[why.lemma]} onAdd={() => onAdd(why.lemma as string)} />
+          )}
         </div>
         <button
           type="button"

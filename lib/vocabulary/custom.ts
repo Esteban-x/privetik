@@ -290,7 +290,7 @@ export function submitVocabAnswer(params: {
   cardId: string;
   userAnswer: string;
   expectedLanguage: "ru" | "fr";
-  mode: "typing" | "qcm";
+  mode: "typing" | "qcm" | "cloze";
   revealed?: boolean;
 }): Promise<{
   correct: boolean;

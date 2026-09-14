@@ -924,6 +924,68 @@ for (const text of T.READING_TEXTS) {
   expect("paquets de fréquence : aucun mot dans deux paquets", new Set(frequent).size, frequent.length);
 }
 
+// ─── 16. La phrase à trous ─────────────────────────────────────────
+// Un trou sur le mauvais mot noterait faux quelqu'un qui a juste : la
+// précision passe avant le rappel, et se mesure sur les textes relus.
+{
+  const C = await jiti.import("../lib/vocabulary/cloze.ts");
+  const expect = (label, got, want) => require_(got === want, `${label} : ${JSON.stringify(got)} au lieu de ${JSON.stringify(want)}`);
+  const answerOf = (word, sentence) => C.clozeOf(word, sentence)?.answer ?? null;
+  expect("forme exacte", answerOf("шко́ла", "Это шко́ла."), "шко́ла");
+  expect("accusatif", answerOf("школа", "Я иду́ в шко́лу."), "шко́лу");
+  expect("adjectif", answerOf("но́вый", "У меня́ нет но́вой кни́ги."), "но́вой");
+  expect("nom en -ия", answerOf("исто́рия", "Я чита́ю об исто́рии."), "исто́рии");
+  expect("mot dérivé refusé", answerOf("шко́ла", "Он шко́льник."), null);
+  expect("voyelle mobile : pas de devinette", answerOf("оте́ц", "Это отде́л отца́."), null);
+  expect("pronom : forme exacte seulement", answerOf("я", "Меня́ зову́т А́нна."), null);
+  expect("verbe : rien", answerOf("чита́ть", "Я чита́ю."), null);
+  expect("sans phrase : rien", C.clozeOf("дом", null), null);
+  const twice = C.clozeOf("дом", "Мы до́ма, в на́шем до́ме.");
+  expect("première occurrence", twice?.before, "Мы ");
+  expect("reste de la phrase", twice?.after, ", в на́шем до́ме.");
+
+  const fold = (s) => s.toLowerCase().replace(/́/g, "").replace(/ё/g, "е");
+  let found = 0;
+  let wrong = 0;
+  let total = 0;
+  for (const text of T.READING_TEXTS) {
+    for (const sentence of text.sentences) {
+      const line = sentence.map((w) => w.ru).join(" ");
+      for (const w of sentence) {
+        const lemma = w.why?.lemma;
+        if (!lemma || /\s/.test(lemma)) continue;
+        total += 1;
+        const got = C.clozeOf(lemma, line);
+        if (!got) continue;
+        const core = (w.ru.match(/[а-яё́]+(?:-[а-яё́]+)*/i) ?? [""])[0];
+        if (fold(got.answer) === fold(core)) found += 1;
+        else if (!sentence.some((other) => other !== w && other.why?.lemma === lemma)) wrong += 1;
+      }
+    }
+  }
+  require_(wrong === 0, `phrase à trous : ${wrong} trou(s) sur un autre mot que celui du texte`);
+  require_(found >= total * 0.5, `phrase à trous : seulement ${found}/${total} mots des textes retrouvés`);
+  console.log(`  phrase à trous : ${found}/${total} mots des textes retrouvés dans leur phrase, 0 sur un autre mot`);
+}
+
+// ─── 17. Le mode de révision conseillé ─────────────────────────────
+{
+  const G = await jiti.import("../lib/vocabulary/guided.ts");
+  const expect = (label, got, want) => require_(got === want, `${label} : ${JSON.stringify(got)} au lieu de ${JSON.stringify(want)}`);
+  const now = Date.UTC(2026, 8, 14);
+  const fresh = () => ({ ru: "стол", exampleRu: null, focus: "normal", srs: null });
+  const learning = () => ({ ru: "стол", exampleRu: null, focus: "normal", srs: { repetitions: 1, dueAt: now - 1000 } });
+  const solid = (sentence) => ({ ru: "шко́ла", exampleRu: sentence, focus: "normal", srs: { repetitions: 5, dueAt: now - 1000 } });
+  const many = (n, make) => Array.from({ length: n }, make);
+  expect("mots neufs → QCM", G.recommendReviewMode(many(8, fresh), now)?.mode, "qcm");
+  expect("neufs au-delà de la limite du jour : pas comptés", G.recommendReviewMode([...many(8, fresh), ...many(4, learning)], now, 2)?.mode, "typing");
+  expect("en cours → frappe", G.recommendReviewMode([...many(6, learning), fresh()], now)?.mode, "typing");
+  expect("solides avec phrase → trous", G.recommendReviewMode(many(6, () => solid("Я иду́ в шко́лу.")), now)?.mode, "cloze");
+  expect("solides sans phrase → cartes", G.recommendReviewMode(many(6, () => solid(null)), now)?.mode, "flashcards");
+  expect("mis de côté : ignorés", G.recommendReviewMode(many(6, () => ({ ...fresh(), focus: "known" })), now), null);
+  expect("rien à réviser → rien", G.recommendReviewMode([], now), null);
+}
+
 // ─── Rapport ───────────────────────────────────────────────────────
 
 if (failures.length) {

@@ -256,18 +256,21 @@ export function useReviewQueue(listId: string | null) {
   async function submitAnswer(params: {
     userAnswer: string;
     expectedLanguage: "ru" | "fr";
-    mode: "typing" | "qcm";
+    mode: "typing" | "qcm" | "cloze";
     revealed?: boolean;
+    /** L'attendu affiché, quand ce n'est pas le mot lui-même (phrase à trous) — pour le seul réapprentissage local. */
+    expected?: string;
   }): Promise<{ correct: boolean; expected: string } | null> {
     if (!current) return null;
+    const { expected: shown, ...answer } = params;
     if (activeRelearn) {
-      const expected = params.expectedLanguage === "ru" ? current.ru : current.fr;
+      const expected = shown ?? (params.expectedLanguage === "ru" ? current.ru : current.fr);
       const correct = !params.revealed && matchesAnswer(params.userAnswer, expected);
       setPendingOutcome(correct);
       return { correct, expected };
     }
     try {
-      const verdict = await submitVocabAnswer({ cardId: current.id, ...params });
+      const verdict = await submitVocabAnswer({ cardId: current.id, ...answer });
       setSessionCorrect((n) => n + (verdict.correct ? 1 : 0));
       setPendingOutcome(verdict.correct);
       // C'était la dernière : le refus est préparé mais pas affiché — la

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { clozeOf } from "@/lib/vocabulary/cloze";
 import { Suspense, useEffect, useRef, useState } from "react";
 import DirectionToggle from "@/components/exercises/DirectionToggle";
 import SessionSummary from "@/components/exercises/SessionSummary";
@@ -36,6 +37,10 @@ export default function TypingPage() {
 function TypingInner() {
   const searchParams = useSearchParams();
   const listId = searchParams.get("list");
+  // /vocabulary/cloze sert cette même page : les phrases à trous sont une
+  // frappe dont l'indice est une phrase et l'attendu, la forme qu'elle emploie.
+  const pathname = usePathname();
+  const clozeMode = pathname === "/vocabulary/cloze" || searchParams.get("mode") === "cloze";
 
   const [direction, setDirection] = useState<VocabDirection>(() =>
     loadDirection("typing", "fr-first"),
@@ -159,10 +164,17 @@ function TypingInner() {
 
   // Le sens détermine ce qui est montré (l'indice) et ce qui est attendu :
   // "ru-first"montre le russe et attend le français, et inversement.
-  const expectedIsRussian = direction !== "ru-first";
+  // En phrases à trous, le russe est toujours attendu.
+  const expectedIsRussian = clozeMode || direction !== "ru-first";
+  const cloze = clozeMode && current.example ? clozeOf(current.ru, current.example.ru) : null;
   const clue = expectedIsRussian ? current.fr : current.ru;
-  const instruction = expectedIsRussian ? "Écris ce mot en russe :" : "Écris ce mot en français :";
-  const answer = expectedIsRussian ? current.ru : current.fr;
+  const instruction = cloze
+    ? "Complète la phrase avec ce mot, à la forme qui convient :"
+    : expectedIsRussian
+      ? "Écris ce mot en russe :"
+      : "Écris ce mot en français :";
+  const answer = cloze ? cloze.answer : expectedIsRussian ? current.ru : current.fr;
+  const answerMode = cloze ? "cloze" : "typing";
 
   async function submit() {
     if (!current || !input.trim() || result || verifying) return;
@@ -179,7 +191,8 @@ function TypingInner() {
     const verdict = await submitAnswer({
       userAnswer: input,
       expectedLanguage: expectedIsRussian ? "ru" : "fr",
-      mode: "typing",
+      mode: answerMode,
+      expected: answer,
     });
     setVerifying(false);
 
@@ -205,7 +218,8 @@ function TypingInner() {
     const verdict = await submitAnswer({
       userAnswer: "",
       expectedLanguage: expectedIsRussian ? "ru" : "fr",
-      mode: "typing",
+      mode: answerMode,
+      expected: answer,
       revealed: true,
     });
     if (!verdict) setSubmitError(true);
@@ -225,7 +239,7 @@ function TypingInner() {
         >
           {backLabel}
         </Link>
-        <DirectionToggle direction={direction} onChange={changeDirection} />
+        {!clozeMode && <DirectionToggle direction={direction} onChange={changeDirection} />}
       </div>
 
       <div className="mb-6 flex items-center justify-between">
@@ -248,7 +262,30 @@ function TypingInner() {
 
       <div className="rounded-[20px] surface p-8 text-center shadow-float">
         <p className="font-display text-sm text-muted">{instruction}</p>
-        <p className="mt-2 font-display text-3xl font-bold text-accent2">{clue}</p>
+        {cloze && current.example ? (
+          <>
+            <p className="mt-2 font-display text-lg font-semibold text-accent2">{current.fr}</p>
+            <p lang="ru" className="mt-4 font-display text-2xl font-bold leading-snug">
+              {cloze.before}
+              {result ? (
+                <span className="text-accent-ink">{cloze.answer}</span>
+              ) : (
+                <span className="inline-block min-w-[72px] border-b-2 border-accent align-baseline">&nbsp;</span>
+              )}
+              {cloze.after}
+            </p>
+            <p className="mt-1.5 font-display text-sm italic text-muted">{current.example.fr}</p>
+          </>
+        ) : (
+          <>
+            {clozeMode && (
+              <p className="mt-1 font-display text-xs text-muted">
+                Pas de phrase pour ce mot : écris-le simplement en russe.
+              </p>
+            )}
+            <p className="mt-2 font-display text-3xl font-bold text-accent2">{clue}</p>
+          </>
+        )}
 
         <input
           value={input}
@@ -287,8 +324,10 @@ function TypingInner() {
               {result === "correct" ? "✓ Correct" : result === "revealed" ? "Réponse" : "✗ Presque"}
             </p>
             <p className="font-display text-xl font-bold">{answer}</p>
-            {expectedIsRussian && (
-              <p className="font-display text-sm text-muted">{current.transliteration}</p>
+            {cloze ? (
+              <p className="font-display text-sm text-muted">forme du dictionnaire : {current.ru}</p>
+            ) : (
+              expectedIsRussian && <p className="font-display text-sm text-muted">{current.transliteration}</p>
             )}
           </div>
         )}
