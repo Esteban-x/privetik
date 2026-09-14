@@ -1680,6 +1680,58 @@ button:disabled,
     0 4px 12px -9px color-mix(in oklab, var(--case) 70%, transparent);
 }
 
+/* ─── Cas mélangés : les six couleurs à la fois ──────────────────────
+   Chaque page de cas teinte son champ et son bouton de SA couleur
+   (`.case-tint` ci-dessus). Le mélange les porte toutes : les variables
+   `--mix` (le dégradé) et `--mix-a` / `--mix-c` / `--mix-f` (trois de ses
+   couleurs) sont posées par lib/grammar/case-mix-style.ts.
+
+   UNE BORDURE EN DÉGRADÉ QUI SUIT LES ANGLES. `border-image` ignore le
+   rayon ; deux fonds le respectent : le fond du champ, limité à la
+   `padding-box`, posé sur le dégradé étendu à la `border-box` — la bordure
+   transparente laisse voir le dégradé sur son épaisseur. Au repos, un voile
+   de la couleur de bordure l'atténue : le champ montre qu'il appartient au
+   mélange sans crier. */
+.field-mix {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--color-bg), var(--color-bg)) padding-box,
+    linear-gradient(
+        color-mix(in oklab, var(--color-border) 62%, transparent),
+        color-mix(in oklab, var(--color-border) 62%, transparent)
+      )
+      border-box,
+    var(--mix) border-box;
+}
+
+.field-mix:focus,
+.field-mix:focus-visible {
+  outline: 2px solid transparent;
+  border-color: transparent;
+  background:
+    linear-gradient(var(--color-bg), var(--color-bg)) padding-box,
+    var(--mix) border-box;
+  box-shadow:
+    inset 3px 3px 10px -4px color-mix(in oklab, var(--mix-a) 70%, transparent),
+    inset -3px -3px 11px -4px color-mix(in oklab, var(--mix-f) 76%, transparent);
+}
+
+/* Le bouton, posé après `.btn-primary` comme `.btn-case` : il en garde la
+   mécanique et ne change que la couleur. Un léger ombrage du texte le garde
+   lisible là où le dégradé passe sur l'ambre du datif. */
+.btn-mix {
+  background-image: var(--mix);
+  border-color: color-mix(in oklab, var(--mix-f) 70%, black);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+}
+
+.btn-mix:hover {
+  box-shadow:
+    var(--shadow-sm),
+    0 8px 22px -12px color-mix(in oklab, var(--mix-c) 70%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
 /* En thème clair, la marque Pro ne projette rien — même raison que pour le
    logo : sur un fond blanc, un halo coloré ne se lit pas comme de la
    lumière mais comme une salissure. Le dégradé tricolore suffit largement

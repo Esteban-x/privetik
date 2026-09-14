@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { CASE_MIX_VARS } from "@/lib/grammar/case-mix-style";
 // La page lit la session (niveau CEFR) : elle est rendue à la demande.
 // Un generateStaticParams n'y changeait rien — le build la marquait déjà
 // dynamique — il donnait juste l'illusion d'un prérendu.
@@ -119,13 +120,23 @@ export default async function CasePracticePage({
 
       <CaseDeclension caseInfo={caseInfo} userLevel={userLevel} signedIn={signedIn} />
 
-      {/* Ici le cas est connu d'avance ; le mélange demande de le reconnaître. */}
-      <Link
-        href="/cases/melange"
-        className="mt-5 inline-flex items-center gap-2 font-display text-sm font-semibold text-accent2 underline-offset-4 hover:underline"
-      >
-        Reconnaître le {caseInfo.nameFr.toLowerCase()} parmi les autres cas →
-      </Link>
+      {/* Ici le cas est connu d'avance ; le mélange demande de le reconnaître.
+          Un vrai bouton, aux couleurs des six cas : un lien bleu sous la carte
+          d'exercice passait inaperçu. Libellé court — `.btn` ne passe pas à la
+          ligne —, le détail vit dans la phrase à côté. */}
+      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Link
+          href="/cases/melange"
+          className="mix-tint btn btn-primary btn-mix btn-sheen rounded-[10px] px-5 py-2.5 font-display text-sm"
+          style={CASE_MIX_VARS}
+        >
+          Cas mélangés →
+        </Link>
+        <span className="font-display text-sm text-muted">
+          Reconnaître {/^[aeiouy]/.test(caseInfo.nameFr.toLowerCase()) ? "l'" : "le "}
+          {caseInfo.nameFr.toLowerCase()} parmi les autres cas.
+        </span>
+      </div>
 
       <div className="mt-10 sm:mt-14">
         <TriggerReference targetCase={caseInfo.id} color={caseInfo.color} />

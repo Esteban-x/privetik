@@ -712,6 +712,61 @@ const NARROW = {
   expect("« héros » refuse l'élision", frenchNounPhrase("héros", "m", "demonstrative", false), "ce héros");
   expect("« homme » l'accepte", frenchNounPhrase("homme", "m", "demonstrative", false), "cet homme");
   expect("« hôtel » l'accepte", frenchNounPhrase("hôtel", "m", "demonstrative", false), "cet hôtel");
+
+  // LE PLURIEL FRANÇAIS. L'ancienne règle ajoutait un s au premier mot et
+  // écrivait « œils », « chevals », « jeune filles » ; la traduction affichée
+  // à côté d'un mot à mettre au pluriel les aurait montrés à tout le monde.
+  {
+    const F = await jiti.import("../lib/grammar/french-article.ts");
+    for (const [singular, plural] of [
+      ["œil", "yeux"],
+      ["cheval", "chevaux"],
+      ["journal", "journaux"],
+      ["hôpital", "hôpitaux"],
+      ["animal", "animaux"],
+      ["tribunal", "tribunaux"],
+      ["jeu", "jeux"],
+      ["feu", "feux"],
+      ["cheveu", "cheveux"],
+      ["ciel", "cieux"],
+      ["travail", "travaux"],
+      ["gâteau", "gâteaux"],
+      ["genou", "genoux"],
+      ["trou", "trous"],
+      ["festival", "festivals"],
+      ["temps", "temps"],
+      ["prix", "prix"],
+      ["monsieur", "messieurs"],
+    ]) {
+      expect(`pluriel de « ${singular} »`, F.pluralizeWord(singular), plural);
+    }
+    expect("composé : grand-mère", F.pluralizeTranslation("grand-mère"), "grands-mères");
+    expect("adjectif accordé : jeune fille", F.pluralizeTranslation("jeune fille"), "jeunes filles");
+    expect("adjectif postposé : journal intime", F.pluralizeTranslation("journal intime"), "journaux intimes");
+    expect("complément : ticket de caisse", F.pluralizeTranslation("ticket de caisse"), "tickets de caisse");
+    expect("précision gardée : bureau (pièce)", F.pluralizeTranslation("bureau (pièce)"), "bureaux (pièce)");
+    expect("énoncé au pluriel : œil", F.frenchPromptPhrase("œil", "m", true), "des yeux");
+    expect("énoncé au singulier : œil", F.frenchPromptPhrase("œil", "m", false), "œil");
+
+    // Toute la banque : une traduction en plusieurs mots qui ne se construit
+    // pas avec « de » doit avoir son pluriel écrit — sinon seul le premier
+    // mot varierait, « jeune filles ».
+    const problems = [];
+    for (const noun of NOUNS) {
+      const core = noun.translation.replace(/\s*\(.*\)$/, "").trim();
+      const composite = /[\s-]/.test(core) && !/\s(de|d')\s?/.test(core);
+      if (composite && !F.PHRASE_PLURALS[core.toLowerCase()]) problems.push(`« ${core} » : pluriel en plusieurs mots non écrit`);
+      const plural = F.pluralizeTranslation(noun.translation);
+      const head = core.split(/[\s-]/)[0];
+      if (plural === noun.translation && !/[sxz]$/i.test(head)) problems.push(`« ${noun.translation} » : pluriel identique au singulier`);
+      if (/\b(\S+)(als|ails|aus|eus)\b/.test(plural) && !/(festivals|bals|carnavals|pneus|bleus)/.test(plural)) {
+        problems.push(`« ${noun.translation} » → « ${plural} » : pluriel suspect`);
+      }
+      const prompt = F.frenchPromptPhrase(noun.translation, noun.frenchGender, true);
+      if (!prompt.startsWith("des ")) problems.push(`« ${noun.translation} » : énoncé au pluriel sans « des » (${prompt})`);
+    }
+    require_(problems.length === 0, `pluriel français : ${problems.length} défaut(s) — ${problems.slice(0, 4).join(" | ")}`);
+  }
 }
 
 // ─── 8. Animacité des personnes ────────────────────────────────────

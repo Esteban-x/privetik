@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CASE_MIX_COLORS, CASE_MIX_GRADIENT, CASE_MIX_VARS } from "@/lib/grammar/case-mix-style";
 import SectionLabel from "@/components/ui/SectionLabel";
 import { CASES_BY_LEARNING_ORDER } from "@/lib/grammar/cases";
 import type { Metadata } from "next";
@@ -97,17 +98,37 @@ export default async function CasesPage() {
         pour toi{level ? ` (niveau ${level})` : ""}.
       </p>
 
+      {/* LE MÉLANGE EST MIS EN AVANT, PAS RANGÉ À CÔTÉ. C'est l'exercice qui
+          ressemble le plus à la lecture — reconnaître le cas avant la
+          terminaison — et il passait pour une note sous le chapô. Il porte
+          les couleurs des six cas, comme sa page. */}
       <Link
         href="/cases/melange"
-        className="group mb-8 -mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent2/40 bg-accent2/10 px-5 py-4 transition-colors hover:border-accent2/60"
+        className="group mb-8 -mt-4 block rounded-[20px] p-[1.5px] transition-transform duration-200 hover:-translate-y-0.5"
+        style={{ backgroundImage: CASE_MIX_GRADIENT }}
       >
-        <span className="min-w-0">
-          <span className="block font-display text-base font-bold">Cas mélangés</span>
-          <span className="block font-display text-sm text-muted">
-            Sans savoir d&apos;avance quel cas employer : c&apos;est ainsi qu&apos;on les rencontre en lisant.
+        <span className="flex flex-col gap-4 rounded-[18.5px] bg-bg2 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <span className="flex min-w-0 flex-1 items-center gap-4">
+            <span aria-hidden className="grid h-12 w-12 shrink-0 grid-cols-3 content-center gap-1.5 rounded-xl bg-bg3 p-2">
+              {CASE_MIX_COLORS.map((color) => (
+                <span key={color} className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+              ))}
+            </span>
+            <span className="min-w-0">
+              <span className="block font-display text-lg font-bold">Cas mélangés</span>
+              <span className="block font-display text-sm leading-snug text-muted">
+                Les six cas dans la même série, sans savoir d&apos;avance lequel employer : c&apos;est
+                ainsi qu&apos;on les rencontre en lisant.
+              </span>
+            </span>
+          </span>
+          <span
+            className="mix-tint btn btn-primary btn-mix btn-sheen self-start rounded-[10px] px-5 py-2.5 font-display text-sm sm:self-auto"
+            style={CASE_MIX_VARS}
+          >
+            S&apos;entraîner →
           </span>
         </span>
-        <span className="font-display text-sm font-semibold text-accent2">S&apos;entraîner →</span>
       </Link>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

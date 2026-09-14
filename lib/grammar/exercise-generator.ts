@@ -15,7 +15,7 @@ import {
 } from "./triggers";
 import { CASES } from "./cases";
 import { CountForm, countFormFor, randomCountNumber } from "./numerals";
-import { fillFrenchBlank, frenchNounPhrase } from "./french-article";
+import { fillFrenchBlank, frenchNounPhrase, frenchPromptPhrase } from "./french-article";
 import {
   categoryOf,
   countableNouns,
@@ -127,7 +127,11 @@ function asGroup(
     // l'énoncé montrait déjà pour un exercice au pluriel : c'est un point
     // de départ, pas la réponse.
     promptRu: `${declineAdjective(adjective, "nominative", noun.gender, false, noun.animacy).accented} ${noun.forms.singular[0]}`,
-    promptFr: frenchNounPhrase(noun.translation, noun.frenchGender, "none", false, adjective),
+    // LA TRADUCTION, ELLE, SUIT LE NOMBRE DEMANDÉ. Le russe montre le point
+    // de départ ; le français dit ce qu'on attend : « de bons amis » pour
+    // « хоро́ших друзья́х ». « bon ami » en regard d'un pluriel à produire
+    // faisait décliner au singulier.
+    promptFr: frenchPromptPhrase(noun.translation, noun.frenchGender, plural, adjective),
   };
 }
 
@@ -299,6 +303,9 @@ export function generateIsolatedExercise(
           accentedForm: result.accented,
           variantForm: result.variant,
           ruleApplied: result.ruleApplied,
+          // Au pluriel, la traduction du nom nu le dit aussi : « глаз » à
+          // mettre au pluriel s'affichait « (œil) ».
+          promptFr: effectivePlural ? frenchPromptPhrase(noun.translation, noun.frenchGender, true) : undefined,
         }),
   };
 }
@@ -558,6 +565,7 @@ export function rebuildCaseExercise(ref: CaseExerciseRef): CaseExercise | null {
         accentedForm: result.accented,
         variantForm: result.variant,
         ruleApplied: result.ruleApplied,
+        promptFr: ref.plural ? frenchPromptPhrase(noun.translation, noun.frenchGender, true) : undefined,
       };
 
   const template =

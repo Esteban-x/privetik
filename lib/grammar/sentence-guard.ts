@@ -1,6 +1,6 @@
 import { CaseId } from "./types";
 import { CaseTrigger } from "./triggers";
-import type { ArticleMode } from "./french-article";
+import { pluralizeWord, type ArticleMode } from "./french-article";
 
 /**
  * Garde-fou : une phrase à trou est-elle réellement une phrase de CE cas ?
@@ -699,10 +699,16 @@ export function validateSentence(input: GuardInput): GuardVerdict {
 // la banque (« héros ») doit littéralement apparaître dans la phrase. C'est
 // la banque qui fait foi pour le sens du mot, ici comme pour ses formes.
 
-/** Minuscules, sans diacritiques, apostrophes et traits d'union en espaces. */
+/**
+ * Minuscules, sans diacritiques, apostrophes et traits d'union en espaces.
+ * « œ » s'écrit « oe » : la décomposition ne le touche pas, et le découpage
+ * en mots l'aurait pris pour un séparateur — « œil » devenait « il ».
+ */
 function normalizeFrench(text: string): string {
   return text
     .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/['’\-]/g, " ");
@@ -712,8 +718,6 @@ function normalizeFrench(text: string): string {
 const FRENCH_STOPWORDS = new Set([
   "de", "du", "des", "d", "le", "la", "les", "l", "un", "une", "a", "au", "aux", "en",
 ]);
-
-const FRENCH_IRREGULAR_PLURALS: Record<string, string> = { travail: "travaux" };
 
 export interface FrenchGuardInput {
   /** La phrase française produite par le modèle. */
@@ -748,10 +752,11 @@ export function validateFrenchSentence(input: FrenchGuardInput): GuardVerdict {
 
   const haystack = normalizeFrench(sentenceFr);
   for (const word of required) {
-    const irregular = FRENCH_IRREGULAR_PLURALS[word];
-    // Pluriel français toléré (livre/livres, couteau/couteaux, travail/travaux) :
-    // c'est le mot qu'on cherche, pas son nombre.
-    const alternatives = irregular ? `${word}(s|x)?|${irregular}` : `${word}(s|x)?`;
+    // Pluriel français toléré (livre/livres, œil/yeux, cheval/chevaux) : c'est
+    // le mot qu'on cherche, pas son nombre. Le pluriel vient de la même règle
+    // que celle qui écrit les phrases (lib/grammar/french-article.ts).
+    const plural = normalizeFrench(pluralizeWord(word));
+    const alternatives = plural !== word ? `${word}(s|x)?|${plural}` : `${word}(s|x)?`;
     if (!new RegExp(`(^|[^a-z])(${alternatives})([^a-z]|$)`).test(haystack)) {
       return {
         ok: false,

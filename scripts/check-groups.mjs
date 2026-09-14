@@ -187,7 +187,29 @@ const FRENCH = [
   ["kniga", "novyy", "indefinite", false, "un nouveau livre"],
   // Sans article : le groupe nu, tel qu'il apparaît dans l'énoncé isolé.
   ["doroga", "novyy", "none", false, "nouvelle route"],
+  // Indéfini pluriel devant un adjectif antéposé : « de », pas « des ».
+  ["drug", "khoroshiy", "indefinite", true, "de bons amis"],
+  // … mais « des » devant le nom, l'adjectif venant après.
+  ["yazyk", "russkiy", "indefinite", true, "des langues russes"],
 ];
+
+// L'énoncé d'un groupe à mettre au pluriel dit le pluriel en français :
+// « хоро́ший друг » à décliner en « хоро́ших друзья́х » s'affichait « bon ami ».
+for (let i = 0; i < 400; i += 1) {
+  const kase = CASES[i % CASES.length];
+  const ex = G.generateIsolatedExercise(kase, true, undefined, true);
+  if (!ex.adjective) continue;
+  expect(
+    /^(de|des) /.test(ex.promptFr ?? ""),
+    `énoncé au pluriel « ${ex.promptRu} » traduit « ${ex.promptFr} » : le français doit dire le pluriel`
+  );
+}
+{
+  const G2 = G.generateIsolatedExercise("genitive", false, undefined, true);
+  if (G2.adjective) {
+    expect(!/^(de|des) /.test(G2.promptFr ?? ""), `énoncé au singulier « ${G2.promptRu} » traduit au pluriel « ${G2.promptFr} »`);
+  }
+}
 for (const [nounId, adjId, article, plural, expected] of FRENCH) {
   const noun = getNoun(nounId);
   const adj = getAdjective(adjId);

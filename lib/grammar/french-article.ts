@@ -46,24 +46,81 @@ export const H_REVIEWED = new Set([
   "humeur",
 ]);
 
-// Pluriels français irréguliers présents dans la banque (le -eau -> -eaux
-// est traité par la règle ci-dessous ; "travail" ne suit aucune des deux).
-const IRREGULAR_PLURALS: Record<string, string> = { travail: "travaux" };
+// ─── Le pluriel français ───────────────────────────────────────────
+//
+// L'ANCIENNE RÈGLE AJOUTAIT UN S AU PREMIER MOT. Elle suffisait tant que le
+// pluriel ne servait qu'aux phrases de quelques déclencheurs ; elle écrivait
+// pourtant déjà « œils », « chevals », « journals », « jeune filles » et
+// « grand-mères ». Et le jour où la traduction affichée à côté d'un mot à
+// mettre au pluriel a dû suivre le nombre, ces formes-là seraient passées
+// sous les yeux de tout le monde. Les règles du français, donc — et, pour
+// les mots composés, la forme écrite en entier.
 
-// Pluralise juste le premier "mot" de la traduction (avant un espace ou une
-// parenthèse) — suffisant pour la petite banque de noms de ce projet, pas
-// un pluralisateur français général. Couvre les cas réellement présents
-// dans les données : -s/-x/-z déjà invariants (temps), -eau -> -eaux
-// (couteau), sinon +s (livre, nom de famille -> noms de famille).
-function pluralizeFirstWord(translation: string): string {
-  const match = /^(\S+)(.*)$/.exec(translation);
-  if (!match) return translation;
-  const [, first, rest] = match;
-  const irregular = IRREGULAR_PLURALS[first.toLowerCase()];
-  if (irregular) return `${irregular}${rest}`;
-  if (/[sxz]$/i.test(first)) return translation;
-  if (/eau$/i.test(first)) return `${first}x${rest}`;
-  return `${first}s${rest}`;
+/** Les pluriels qu'aucune règle ne donne, mot par mot. */
+const IRREGULAR_WORD_PLURALS: Record<string, string> = {
+  œil: "yeux",
+  oeil: "yeux",
+  ciel: "cieux",
+  aïeul: "aïeux",
+  travail: "travaux",
+  bail: "baux",
+  corail: "coraux",
+  émail: "émaux",
+  vitrail: "vitraux",
+  soupirail: "soupiraux",
+  monsieur: "messieurs",
+  madame: "mesdames",
+  mademoiselle: "mesdemoiselles",
+};
+
+/** Les -al qui font -als. */
+const AL_TAKES_S = new Set(["bal", "carnaval", "chacal", "festival", "récital", "régal", "narval", "cal"]);
+/** Les -eu et -au qui font -s. */
+const EU_TAKES_S = new Set(["pneu", "bleu", "émeu", "landau", "sarrau"]);
+/** Les sept -ou qui font -oux. */
+const OU_TAKES_X = new Set(["bijou", "caillou", "chou", "genou", "hibou", "joujou", "pou"]);
+
+/**
+ * Les traductions en plusieurs mots dont le pluriel ne touche pas que le
+ * premier : un adjectif qui s'accorde, un composé à trait d'union dont les
+ * deux moitiés varient. Les autres — « ticket de caisse », « nom de famille »
+ * — ne pluralisent que leur tête. check:grammar exige qu'une traduction
+ * nouvelle en plusieurs mots soit rangée ici ou construite avec « de ».
+ */
+export const PHRASE_PLURALS: Record<string, string> = {
+  "grand-mère": "grands-mères",
+  "grand-père": "grands-pères",
+  "petit-déjeuner": "petits-déjeuners",
+  "jeune fille": "jeunes filles",
+  "journal intime": "journaux intimes",
+};
+
+/** Le pluriel d'un mot français. */
+export function pluralizeWord(word: string): string {
+  const lower = word.toLowerCase();
+  const irregular = IRREGULAR_WORD_PLURALS[lower];
+  if (irregular) return irregular;
+  if (/[sxz]$/.test(lower)) return word;
+  if (/(au|eu)$/.test(lower) && !EU_TAKES_S.has(lower)) return `${word}x`;
+  if (/al$/.test(lower) && !AL_TAKES_S.has(lower)) return `${word.slice(0, -2)}aux`;
+  if (OU_TAKES_X.has(lower)) return `${word}x`;
+  return `${word}s`;
+}
+
+/**
+ * Le pluriel d'une traduction de la banque. Une précision entre parenthèses
+ * (« bureau (pièce) ») reste telle quelle ; un composé connu prend sa forme
+ * écrite ; sinon seul le premier mot varie (« tickets de caisse »).
+ */
+export function pluralizeTranslation(translation: string): string {
+  const match = /^(.*?)(\s*\(.*\))?$/.exec(translation);
+  const core = (match?.[1] ?? translation).trim();
+  const note = match?.[2] ?? "";
+  const known = PHRASE_PLURALS[core.toLowerCase()];
+  if (known) return `${known}${note}`;
+  const head = /^(\S+)(.*)$/.exec(core);
+  if (!head) return translation;
+  return `${pluralizeWord(head[1])}${head[2]}${note}`;
 }
 
 /**
@@ -113,7 +170,7 @@ export function frenchNounPhrase(
   plural: boolean,
   adjective?: Adjective
 ): string {
-  const noun = plural ? pluralizeFirstWord(translation) : translation;
+  const noun = plural ? pluralizeTranslation(translation) : translation;
   const core = adjective
     ? adjective.fr.before
       ? `${agree(adjective, gender, plural, noun)} ${noun}`
@@ -121,7 +178,12 @@ export function frenchNounPhrase(
     : noun;
 
   if (article === "none") return core;
-  if (plural) return `${article === "indefinite" ? "des" : "ces"} ${core}`;
+  // « de bons amis », pas « des bons amis » : devant un adjectif antéposé au
+  // pluriel, l'indéfini « des » devient « de » à l'écrit.
+  if (plural) {
+    if (article === "indefinite") return `${adjective?.fr.before ? "de" : "des"} ${core}`;
+    return `ces ${core}`;
+  }
   if (article === "indefinite") return `${gender === "f" ? "une" : "un"} ${core}`;
 
   // demonstrative — élision devant voyelle ou h MUET, jamais devant un h
@@ -129,6 +191,28 @@ export function frenchNounPhrase(
   const aspirated = ASPIRATED_H.has(core.toLowerCase().split(/[\s(]/)[0]);
   if (gender === "m" && !aspirated && VOWEL_SOUND.test(core)) return `cet ${core}`;
   return `${gender === "f" ? "cette" : "ce"} ${core}`;
+}
+
+/**
+ * La traduction affichée à côté du mot à décliner, AU NOMBRE DEMANDÉ.
+ *
+ * « глаз (œil) » en regard d'un pluriel à produire, « хоро́ший друг (bon
+ * ami) » quand on attend « хоро́ших друзья́х » : le russe montre le point de
+ * départ, mais le français, lui, disait le singulier — et faisait décliner au
+ * singulier. Au pluriel la traduction porte donc son article, qui rend le
+ * nombre visible même quand le nom ne change pas à l'oral : « des yeux »,
+ * « de bons amis », « des temps ». Au singulier, rien ne change : « œil »,
+ * « bon ami ».
+ */
+export function frenchPromptPhrase(
+  translation: string,
+  gender: FrenchGender,
+  plural: boolean,
+  adjective?: Adjective
+): string {
+  return plural
+    ? frenchNounPhrase(translation, gender, "indefinite", true, adjective)
+    : frenchNounPhrase(translation, gender, "none", false, adjective);
 }
 
 /**

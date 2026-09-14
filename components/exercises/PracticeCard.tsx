@@ -37,9 +37,17 @@ export default function PracticeCard<T extends ChoiceExercise>({
   empty,
   recapFooter,
   showErrorsLink = true,
+  tint,
 }: {
   title: string;
+  /** Couleur du bandeau — ou un dégradé CSS complet (« Cas mélangés »). */
   color: string;
+  /**
+   * « mix » : le champ et le bouton prennent le dégradé des six cas
+   * (`.field-mix`, `.btn-mix`), sous un parent `.mix-tint` qui pose les
+   * variables — voir lib/grammar/case-mix-style.ts.
+   */
+  tint?: "mix";
   session: PracticeSession<T>;
   /** « les exercices d'aspect » : ce que l'écran d'abonnement dit bloqué. */
   paywallWhat: string;
@@ -132,6 +140,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
                 onSubmit={(value) => session.answer(value, true)}
                 onReveal={session.reveal}
                 numeric={session.exercise?.options.every((option) => /^\d+$/.test(option)) ?? false}
+                tint={tint}
               />
             ) : (
               <ChoiceOptions
@@ -241,6 +250,7 @@ function TypedAnswer({
   onSubmit,
   onReveal,
   numeric = false,
+  tint,
 }: {
   done: boolean;
   checking: boolean;
@@ -249,6 +259,7 @@ function TypedAnswer({
   onReveal: () => void;
   /** La réponse est un nombre en chiffres (nombres à l'oreille), pas du russe. */
   numeric?: boolean;
+  tint?: "mix";
 }) {
   const [value, setValue] = useState("");
   const ready = value.trim().length > 0 && !checking && !done;
@@ -271,12 +282,17 @@ function TypedAnswer({
           autoCapitalize="off"
           spellCheck={false}
           autoFocus
+          // Le dégradé du mélange s'efface devant le verdict : `.field-mix`
+          // peint sa bordure, et le vert ou le rouge de la correction ne se
+          // verraient plus.
           className={`field-focus flex-1 rounded-[10px] border bg-bg px-4 py-3 font-display text-lg text-text outline-none placeholder:text-muted/60 ${
             verdict === "correct"
               ? "border-success"
               : verdict === "wrong"
                 ? "border-danger"
-                : "border-border"
+                : tint === "mix"
+                  ? "field-mix"
+                  : "border-border"
           }`}
         />
         {!done && (
@@ -284,7 +300,7 @@ function TypedAnswer({
             type="button"
             onClick={() => onSubmit(value)}
             disabled={!ready}
-            className="btn btn-primary btn-sheen rounded-[10px] px-6 py-3 font-display text-sm disabled:cursor-not-allowed disabled:opacity-60"
+            className={`btn btn-primary ${tint === "mix" ? "btn-mix" : ""} btn-sheen rounded-[10px] px-6 py-3 font-display text-sm disabled:cursor-not-allowed disabled:opacity-60`}
           >
             {checking ? "Vérification…" : "Vérifier"}
           </button>

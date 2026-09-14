@@ -16,7 +16,7 @@ import {
 import { caseAttemptBody, caseItemKey, describeCaseExercise } from "@/lib/grammar/case-attempt";
 import { diagnoseCaseAnswer } from "@/lib/grammar/diagnose";
 import type { TriggerProgressMap } from "@/lib/grammar/exercise-selector";
-import { MODULE_COLORS } from "@/lib/exercises/colors";
+import { CASE_MIX_GRADIENT, CASE_MIX_VARS } from "@/lib/grammar/case-mix-style";
 import { rememberDraw } from "@/lib/practice/recent";
 import { spokenSentence } from "@/lib/practice/retry";
 import { usePracticeSession, type ChoiceExercise } from "@/lib/practice/use-practice-session";
@@ -116,18 +116,22 @@ export default function CaseMixPractice({
 
   if (!signedIn) return <MixVisitorCard />;
 
+  // Les six couleurs des cas, du bandeau au bouton : voir lib/grammar/case-mix-style.ts.
   return (
-    <PracticeCard
-      title="Cas mélangés"
-      color={MODULE_COLORS.cases}
-      session={session}
-      paywallWhat="les exercices de déclinaison"
-      answerMode="typing"
-      spoken={(item) => spokenSentence(item.exercise.sentenceTemplate, item.options[0])}
-      renderQuestion={(item) => (
-        <MixedQuestion exercise={item.exercise} answered={Boolean(session.feedback)} />
-      )}
-    />
+    <div className="mix-tint" style={CASE_MIX_VARS}>
+      <PracticeCard
+        title="Cas mélangés"
+        color={CASE_MIX_GRADIENT}
+        tint="mix"
+        session={session}
+        paywallWhat="les exercices de déclinaison"
+        answerMode="typing"
+        spoken={(item) => spokenSentence(item.exercise.sentenceTemplate, item.options[0])}
+        renderQuestion={(item) => (
+          <MixedQuestion exercise={item.exercise} answered={Boolean(session.feedback)} />
+        )}
+      />
+    </div>
   );
 }
 
@@ -144,7 +148,14 @@ function MixedQuestion({ exercise, answered }: { exercise: CaseExercise; answere
       </p>
       <p className="mt-2 font-display text-2xl font-bold leading-snug">
         {before}
-        <span className="inline-block min-w-[80px] border-b-2 border-accent">&nbsp;</span>
+        <span className="relative inline-block min-w-[80px]">
+          &nbsp;
+          <span
+            aria-hidden
+            className="absolute inset-x-0 bottom-0 h-0.5 rounded-full"
+            style={{ backgroundImage: CASE_MIX_GRADIENT }}
+          />
+        </span>
         {after}
       </p>
       <p className="mt-1 font-display text-sm italic text-muted">
@@ -185,10 +196,10 @@ function MixedQuestion({ exercise, answered }: { exercise: CaseExercise; answere
 
 function MixVisitorCard() {
   return (
-    <div className="overflow-hidden rounded-[20px] surface shadow-float">
+    <div className="mix-tint overflow-hidden rounded-[20px] surface shadow-float" style={CASE_MIX_VARS}>
       <div
         className="px-5 py-3 font-display text-[13px] font-semibold uppercase tracking-wide text-white sm:px-6 sm:py-3.5 sm:text-sm"
-        style={{ background: MODULE_COLORS.cases }}
+        style={{ backgroundImage: CASE_MIX_GRADIENT }}
       >
         Cas mélangés
       </div>
@@ -202,7 +213,7 @@ function MixVisitorCard() {
         <div className="mt-5 flex flex-wrap gap-3">
           <Link
             href="/signup"
-            className="btn btn-primary btn-sheen rounded-[10px] px-6 py-3 font-display text-sm"
+            className="btn btn-primary btn-mix btn-sheen rounded-[10px] px-6 py-3 font-display text-sm"
           >
             Créer un compte gratuit
           </Link>
