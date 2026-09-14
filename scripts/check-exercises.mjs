@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pageFileFor, servesAPage } from "./lib/routes.mjs";
+import { practiceInvariants } from "./lib/practice-invariants.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": ROOT } });
@@ -37,6 +38,8 @@ const numbers = await jiti.import("../lib/numbers/exercises.ts");
 const conjugation = await jiti.import("../lib/conjugation/exercises.ts");
 const alphabet = await jiti.import("../lib/alphabet/exercises.ts");
 const { VERBS } = await jiti.import("../lib/conjugation/verbs.ts");
+const { normalizeTyped, typedMatches } = await jiti.import("../lib/exercises/types.ts");
+const retry = await jiti.import("../lib/practice/retry.ts");
 const { EXERCISE_MODULES, moduleLevels } = await jiti.import("../lib/exercises/catalog.ts");
 const { EXERCISE_ROUTES } = await jiti.import("../lib/exercises/routes.ts");
 const { findLesson } = await jiti.import("../lib/courses/catalog.ts");
@@ -76,20 +79,32 @@ const MODULES = [
     skills: numbers.NUMBER_SKILLS,
     generate: numbers.generateNumberExercise,
     check: numbers.checkNumberAnswer,
+    rebuild: numbers.rebuildNumberExercise,
   },
   {
     id: "conjugation",
     skills: conjugation.CONJUGATION_SKILLS,
     generate: conjugation.generateConjugationExercise,
     check: conjugation.checkConjugationAnswer,
+    rebuild: conjugation.rebuildConjugationExercise,
+    typable: conjugation.TYPABLE_CONJUGATION_SKILLS,
   },
   {
     id: "alphabet",
     skills: alphabet.ALPHABET_SKILLS,
     generate: alphabet.generateAlphabetExercise,
     check: alphabet.checkAlphabetAnswer,
+    rebuild: alphabet.rebuildAlphabetExercise,
   },
 ];
+
+/**
+ * Les compétences dont les leurres ne disent rien de précis : une position
+ * d'accent fausse, une orthographe fautive écrite à la main. Partout
+ * ailleurs, un exercice sans aucune note signale un générateur qui a perdu
+ * les siennes.
+ */
+const WITHOUT_NOTES = new Set(["alphabet:stress", "alphabet:spelling", "alphabet:sounds"]);
 
 const DRAWS = 600;
 for (const bank of MODULES) {
@@ -105,10 +120,19 @@ for (const bank of MODULES) {
 
     const random = mulberry32(1234);
     const seen = new Set();
+    let noted = 0;
     for (let draw = 0; draw < DRAWS; draw += 1) {
       const exercise = bank.generate(skill.id, random);
       const where = `${bank.id} › ${skill.id} › ${exercise.itemId}`;
       seen.add(exercise.itemId);
+      if (exercise.whyNot) noted += 1;
+
+      // Un second générateur pour la reconstruction : puiser dans `random`
+      // décalerait tous les tirages suivants.
+      for (const problem of practiceInvariants(exercise, bank.rebuild, mulberry32(draw))) {
+        failures.push(`${where} : ${problem}`);
+      }
+      checks += 1;
 
       const correct = exercise.options[exercise.correctIndex];
       if (bank.check(exercise.itemId, correct) !== true) {
@@ -125,6 +149,23 @@ for (const bank of MODULES) {
       }
       checks += 1;
 
+      // UNE COMPÉTENCE TAPABLE DOIT RESTER DÉCIDABLE SANS ACCENT. Si un leurre
+      // ne diffère de la réponse que par l'accent ou le ё, la saisie ne peut
+      // pas les séparer — c'est pourquoi le passé n'est pas tapable.
+      if (bank.typable?.includes(skill.id)) {
+        for (const option of exercise.options) {
+          if (option !== correct && normalizeTyped(option) === normalizeTyped(correct)) {
+            failures.push(
+              `${where} : compétence tapable, mais « ${option} » et « ${correct} » ne diffèrent que par l'accent`
+            );
+          }
+        }
+        if (!typedMatches(strip(correct).replace(/ё/g, "е").toUpperCase(), correct)) {
+          failures.push(`${where} : la réponse tapée sans accent ni ё n'est pas reconnue`);
+        }
+        checks += 1;
+      }
+
       if (new Set(exercise.options).size !== exercise.options.length) {
         failures.push(`${where} : options en double`);
       }
@@ -140,7 +181,49 @@ for (const bank of MODULES) {
     // Un onglet qui ne tire que deux ou trois items devient une devinette
     // au bout d'une minute.
     require_(seen.size >= 5, `${bank.id} › ${skill.id} : seulement ${seen.size} items distincts`);
+    if (!WITHOUT_NOTES.has(`${bank.id}:${skill.id}`)) {
+      require_(
+        noted >= DRAWS * 0.9,
+        `${bank.id} › ${skill.id} : ${DRAWS - noted} exercices sur ${DRAWS} sans aucune note sur leurs leurres`
+      );
+    }
   }
+  require_(bank.rebuild("inexistant:x:y", Math.random) === null, `${bank.id} : un identifiant inventé est reconstruit`);
+  require_(bank.rebuild("", Math.random) === null, `${bank.id} : un identifiant vide est reconstruit`);
+}
+
+// ─── 3 bis. Le rattrapage des erreurs ────────────────────────────
+//
+// Une erreur revient RETRY_GAP exercices plus tard, pas avant, et une seule
+// fois par exercice en attente ; remélangée, elle garde sa bonne réponse.
+{
+  const { scheduleRetry, takeDueRetry, takeAnyRetry, reshuffleChoice, spokenSentence, RETRY_GAP } = retry;
+  let queue = scheduleRetry([], "a", { n: 1 }, 2);
+  require_(takeDueRetry(queue, 2 + RETRY_GAP - 1) === null, "rattrapage : une erreur revient trop tôt");
+  const due = takeDueRetry(queue, 2 + RETRY_GAP);
+  require_(due?.entry.id === "a" && due.rest.length === 0, "rattrapage : une erreur échue n'est pas servie");
+  queue = scheduleRetry(scheduleRetry(queue, "b", { n: 2 }, 3), "a", { n: 1 }, 7);
+  require_(queue.length === 2, "rattrapage : un exercice raté deux fois figure deux fois en file");
+  require_(takeAnyRetry(queue)?.entry.id === "b", "rattrapage : « refaire » ne sert pas le plus ancien");
+  // Le plafond qui empêche quelques erreurs de monopoliser la séance.
+  require_(
+    retry.retriesLeft(0) && retry.retriesLeft(retry.MAX_RETRIES - 1) && !retry.retriesLeft(retry.MAX_RETRIES),
+    "rattrapage : un exercice raté revient sans limite"
+  );
+
+  const exercise = { options: ["один", "два", "три", "четыре"], correctIndex: 2 };
+  for (let i = 0; i < 20; i += 1) {
+    const shuffled = reshuffleChoice(exercise, mulberry32(i));
+    require_(
+      shuffled.options[shuffled.correctIndex] === "три",
+      "rattrapage : remélanger les options perd la bonne réponse"
+    );
+  }
+
+  expect("phrase à écouter", spokenSentence("Я ___ в шко́лу.", "иду́"), "Я иду́ в шко́лу.");
+  expect("réponse seule à écouter", spokenSentence("4:30", "полови́на пя́того"), "полови́на пя́того");
+  expect("rien de russe à écouter", spokenSentence("ma phrase ___", "moloko"), null);
+  expect("mot à écouter quand la réponse est une lecture", spokenSentence("молоко́", "malako"), "молоко́");
 }
 
 // ─── 4. Témoins ──────────────────────────────────────────────────

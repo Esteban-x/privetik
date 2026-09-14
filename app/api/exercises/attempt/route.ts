@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { bumpStreakAndXp } from "@/lib/progress/streak";
-import { checkNumberAnswer, getNumberSkill } from "@/lib/numbers/exercises";
+import {
+  checkNumberAnswer,
+  getNumberSkill,
+  rebuildNumberExercise,
+} from "@/lib/numbers/exercises";
 import {
   checkConjugationAnswer,
   getConjugationSkill,
+  rebuildConjugationExercise,
+  TYPABLE_CONJUGATION_SKILLS,
 } from "@/lib/conjugation/exercises";
-import { checkAlphabetAnswer, getAlphabetSkill } from "@/lib/alphabet/exercises";
+import {
+  checkAlphabetAnswer,
+  getAlphabetSkill,
+  rebuildAlphabetExercise,
+} from "@/lib/alphabet/exercises";
+import { typedMatches, type PracticeExercise } from "@/lib/exercises/types";
 import { allowPractice } from "@/lib/practice/quota";
 
 /**
@@ -28,6 +39,10 @@ import { allowPractice } from "@/lib/practice/quota";
 type Checker = {
   hasSkill: (skill: string) => boolean;
   check: (itemId: string, answer: string) => boolean | null;
+  /** L'exercice exact qu'un identifiant désigne — pour juger une réponse TAPÉE. */
+  rebuild: (itemId: string) => PracticeExercise | null;
+  /** Les compétences qui acceptent une réponse tapée plutôt qu'une option. */
+  typable: readonly string[];
   /** Le `kind` écrit dans activity_log, pour le tableau de bord. */
   activityKind: string;
 };
@@ -36,16 +51,22 @@ const MODULES: Record<string, Checker> = {
   numbers: {
     hasSkill: (skill) => Boolean(getNumberSkill(skill)),
     check: checkNumberAnswer,
+    rebuild: (itemId) => rebuildNumberExercise(itemId),
+    typable: [],
     activityKind: "numbers",
   },
   conjugation: {
     hasSkill: (skill) => Boolean(getConjugationSkill(skill)),
     check: checkConjugationAnswer,
+    rebuild: (itemId) => rebuildConjugationExercise(itemId),
+    typable: TYPABLE_CONJUGATION_SKILLS,
     activityKind: "conjugation",
   },
   alphabet: {
     hasSkill: (skill) => Boolean(getAlphabetSkill(skill)),
     check: checkAlphabetAnswer,
+    rebuild: (itemId) => rebuildAlphabetExercise(itemId),
+    typable: [],
     activityKind: "alphabet",
   },
 };
@@ -69,7 +90,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Compétence inconnue" }, { status: 400 });
   }
 
-  const correct = checker.check(itemId, answer);
+  // UNE RÉPONSE TAPÉE N'EST PAS UNE OPTION. Elle est comparée, accent, casse
+  // et ё mis à part, à la forme que l'exercice attend — relue dans la banque
+  // à partir de l'identifiant, jamais prise au client. Seules les compétences
+  // déclarées tapables l'acceptent : au passé, l'accent seul sépare la
+  // réponse de son leurre, et une saisie sans accent les confondrait.
+  const typed = body.typed === true;
+  let correct: boolean | null;
+  if (typed) {
+    if (!checker.typable.includes(skill)) {
+      return NextResponse.json({ error: "Cette compétence se répond en choisissant" }, { status: 400 });
+    }
+    const exercise = itemId.startsWith(`${skill}:`) ? checker.rebuild(itemId) : null;
+    correct = exercise ? typedMatches(answer, exercise.options[exercise.correctIndex]) : null;
+  } else {
+    correct = checker.check(itemId, answer);
+  }
   if (correct === null) return NextResponse.json({ error: "Exercice inconnu" }, { status: 400 });
 
   // Le péage de pratique : vingt exercices par jour au plan gratuit, tous

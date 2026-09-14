@@ -28,6 +28,69 @@ export interface PracticeExercise {
   correctIndex: number;
   /** Pourquoi c'est cette réponse — affiché après le choix, jamais avant. */
   explain: string;
+  /**
+   * Ce que représente chaque mauvaise option : « forme de « ты » »,
+   * « terminaison de la 2ᵉ conjugaison ». Voir `whyNotFor`.
+   */
+  whyNot?: Record<string, string>;
+}
+
+/**
+ * Les notes « pourquoi pas celle-là » d'un QCM, réduites aux options
+ * réellement affichées.
+ *
+ * POURQUOI ELLES EXISTENT. La correction disait la bonne réponse et la
+ * règle, jamais ce que l'apprenant venait de choisir. Or un leurre n'est pas
+ * pris au hasard : c'est la forme d'une autre personne, la terminaison de
+ * l'autre conjugaison, l'accord d'un autre cas. Nommer la confusion corrige
+ * la façon de raisonner ; la seule bonne réponse ne corrige que l'exercice.
+ *
+ * CALCULÉES APRÈS LE TIRAGE DES OPTIONS. `buildOptions` écarte et
+ * dédoublonne des leurres : une note sur une forme absente ne sert à rien,
+ * et une note posée sur la bonne réponse — quand un leurre coïncide avec
+ * elle, ce que le syncrétisme russe produit souvent — affirmerait une faute
+ * là où il n'y en a pas.
+ *
+ * Une note est un FRAGMENT, sans majuscule ni point : l'écran l'affiche
+ * derrière la forme choisie. Deux notes qui visent la même forme sont
+ * jointes, parce qu'elles sont toutes deux vraies — « кни́ги » est un
+ * génitif singulier ET un nominatif pluriel.
+ */
+export function whyNotFor(
+  options: readonly string[],
+  correct: string,
+  labels: [form: string | null | undefined, note: string][]
+): Record<string, string> | undefined {
+  const byForm = new Map<string, string[]>();
+  for (const [form, note] of labels) {
+    if (!form || form === correct || !options.includes(form)) continue;
+    const notes = byForm.get(form) ?? [];
+    if (!notes.includes(note)) notes.push(note);
+    byForm.set(form, notes);
+  }
+  if (byForm.size === 0) return undefined;
+  return Object.fromEntries([...byForm].map(([form, notes]) => [form, notes.join(" ; ")]));
+}
+
+/**
+ * Une réponse TAPÉE ramenée à ce qui compte : ni la casse, ni les espaces,
+ * ni l'accent tonique, ni la différence ё / е. Personne ne tape l'accent, et
+ * le russe courant n'écrit pas le ё — les exiger compterait faux quelqu'un
+ * qui connaît la forme.
+ */
+export function normalizeTyped(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/́/g, "")
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ");
+}
+
+/** Une réponse tapée correspond-elle à la forme attendue ? */
+export function typedMatches(answer: string, expected: string): boolean {
+  const given = normalizeTyped(answer);
+  return given.length > 0 && given === normalizeTyped(expected);
 }
 
 /** Une compétence, c'est-à-dire un onglet du module. */

@@ -10,6 +10,7 @@ import {
 } from "./verbs";
 import { EXTRA_CONTEXTS } from "./contexts.generated";
 import { getCase } from "@/lib/grammar/cases";
+import { whyNotFor } from "@/lib/exercises/types";
 
 /**
  * Quatre compétences, dans l'ordre où elles se construisent. Chacune isole
@@ -66,6 +67,8 @@ export interface MotionExercise {
   options: string[];
   correctIndex: number;
   explain: string;
+  /** Ce que dit chaque mauvaise option — voir `whyNotFor`. */
+  whyNot?: Record<string, string>;
 }
 
 function shuffleWithAnswer(options: string[], correct: string, random: () => number) {
@@ -117,12 +120,20 @@ const MODE_DESTINATIONS: Record<MotionMode, { ru: string; fr: string }[]> = {
   ],
 };
 
-function modeExercise(random: () => number): MotionExercise {
+/**
+ * Chaque tirage accepte un choix IMPOSÉ en plus du hasard : c'est ce qui
+ * permet de reconstruire un exercice à partir de son identifiant (voir
+ * `rebuildMotionExercise`). Le hasard ne sert plus alors qu'à mélanger.
+ */
+function modeExercise(
+  random: () => number,
+  forced?: { pair: MotionPair; destination: { ru: string; fr: string } }
+): MotionExercise {
   // La phrase dit « je vais » : seuls les verbes d'« aller » peuvent être la
   // réponse. Les verbes de manière (courir, porter) restent en distracteurs,
   // où ils testent utilement la confusion aller/courir.
-  const pair = pick(MOTION_PAIRS.filter((p) => p.isGoing), random);
-  const destination = pick(MODE_DESTINATIONS[pair.mode], random);
+  const pair = forced?.pair ?? pick(MOTION_PAIRS.filter((p) => p.isGoing), random);
+  const destination = forced?.destination ?? pick(MODE_DESTINATIONS[pair.mode], random);
   const correct = pair.uniForms.present1;
   const others = MOTION_PAIRS.filter((p) => p.id !== pair.id);
   for (let i = others.length - 1; i > 0; i -= 1) {
@@ -137,6 +148,11 @@ function modeExercise(random: () => number): MotionExercise {
     random
   );
   return {
+    whyNot: whyNotFor(
+      options,
+      correct,
+      others.slice(0, 3).map((p): [string, string] => [p.uniForms.present1, `${p.uni} : ${p.translation}`])
+    ),
     skill: "mode",
     itemId: `mode:${pair.id}:${destination.ru}`,
     prompt: "Quel verbe correspond au mode de déplacement montré ?",
@@ -318,21 +334,30 @@ function formOf(pair: MotionPair, context: DirectionContext, which: "uni" | "mul
   return which === "uni" ? pair.uniForms[context.form] : pair.multiForms[context.form];
 }
 
-function directionExercise(random: () => number): MotionExercise {
-  const context = pick(DIRECTION_CONTEXTS, random);
+function directionExercise(
+  random: () => number,
+  forced?: { pair: MotionPair; context: DirectionContext }
+): MotionExercise {
+  const context = forced?.context ?? pick(DIRECTION_CONTEXTS, random);
   // Le contexte fixe la destination (« в университет », « в кино ») : seuls
   // les verbes d'« aller » dont le mode y mène sont éligibles. On ne va pas
   // au cinéma à la nage.
-  const pair = pick(
-    MOTION_PAIRS.filter((p) => p.isGoing && context.modes.includes(p.mode)),
-    random
-  );
+  const pair =
+    forced?.pair ??
+    pick(
+      MOTION_PAIRS.filter((p) => p.isGoing && context.modes.includes(p.mode)),
+      random
+    );
   const uniForm = formOf(pair, context, "uni");
   const multiForm = formOf(pair, context, "multi");
   const correct = context.answer === "uni" ? uniForm : multiForm;
 
   const { options, correctIndex } = shuffleWithAnswer([uniForm, multiForm], correct, random);
   return {
+    whyNot: whyNotFor(options, correct, [
+      [uniForm, "unidirectionnel : un trajet précis, dans une direction, en cours"],
+      [multiForm, "multidirectionnel : habitude, aller-retour, ou déplacement sans direction unique"],
+    ]),
     skill: "direction",
     itemId: `direction:${pair.id}:${context.id}`,
     prompt: "Trajet unique ou habitude ?",
@@ -355,8 +380,8 @@ function directionExercise(random: () => number): MotionExercise {
 // sens (un seul verbe en -е́хать parmi trois en -йти́ : on le reconnaît sans
 // lire le schéma) et injuste dans l'autre. Le mode est DONNÉ par le
 // pictogramme ; ce qui est demandé, c'est le trajet.
-function prefixExercise(random: () => number): MotionExercise {
-  const target = pick(MOTION_PREFIXES, random);
+function prefixExercise(random: () => number, forced?: MotionPrefix): MotionExercise {
+  const target = forced ?? pick(MOTION_PREFIXES, random);
   const others = MOTION_PREFIXES.filter(
     (p) => p.id !== target.id && p.schema !== target.schema && p.mode === target.mode
   );
@@ -385,6 +410,11 @@ function prefixExercise(random: () => number): MotionExercise {
     mode: target.mode,
     options,
     correctIndex,
+    whyNot: whyNotFor(
+      options,
+      target.perfective,
+      distractors.map((d): [string, string] => [d.perfective, `${d.prefix} : ${d.translation}`])
+    ),
     // La règle de formation n'est pas la même dans les deux séries, et
     // l'annoncer de travers apprendrait « приездить ».
     explain:
@@ -560,8 +590,8 @@ const GOVERNMENT_ITEMS: GovernmentTarget[] = [
   },
 ];
 
-function governmentExercise(random: () => number): MotionExercise {
-  const item = pick(GOVERNMENT_ITEMS, random);
+function governmentExercise(random: () => number, forced?: GovernmentTarget): MotionExercise {
+  const item = forced ?? pick(GOVERNMENT_ITEMS, random);
   const prefix = getPrefix(item.prefixId)!;
   const { options, correctIndex } = shuffleWithAnswer(
     [item.correct, ...item.distractors],
@@ -595,6 +625,43 @@ export function generateMotionExercise(
   random: () => number = Math.random
 ): MotionExercise {
   return GENERATORS[skill](random);
+}
+
+/**
+ * L'exercice exact qu'un identifiant désigne, options remélangées — pour
+ * « Mes erreurs ». `null` pour un identifiant qu'aucun tirage ne produit :
+ * un verbe de manière sur « je vais », une destination hors de son mode.
+ */
+export function rebuildMotionExercise(
+  itemId: string,
+  random: () => number = Math.random
+): MotionExercise | null {
+  const [kind, ...rest] = itemId.split(":");
+  if (kind === "mode") {
+    const pair = getPair(rest[0]);
+    const destinationRu = rest.slice(1).join(":");
+    const destination = pair?.isGoing
+      ? MODE_DESTINATIONS[pair.mode].find((d) => d.ru === destinationRu)
+      : undefined;
+    return pair && destination ? modeExercise(random, { pair, destination }) : null;
+  }
+  if (kind === "direction") {
+    const pair = getPair(rest[0]);
+    const context = DIRECTION_CONTEXTS.find((c) => c.id === rest[1]);
+    if (!pair || !context || !pair.isGoing || !context.modes.includes(pair.mode)) return null;
+    return directionExercise(random, { pair, context });
+  }
+  if (kind === "prefix") {
+    const prefix = getPrefix(rest[0]);
+    return prefix ? prefixExercise(random, prefix) : null;
+  }
+  if (kind === "government") {
+    const item = GOVERNMENT_ITEMS.find(
+      (g) => g.prefixId === rest[0] && g.correct === rest.slice(1).join(":")
+    );
+    return item && getPrefix(item.prefixId) ? governmentExercise(random, item) : null;
+  }
+  return null;
 }
 
 /**

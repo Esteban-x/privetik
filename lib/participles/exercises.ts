@@ -1,5 +1,6 @@
 import { getVerb, PARTICIPLE_VERBS, type ParticipleVerb } from "./verbs";
 import { EXTRA_CONTEXTS } from "./contexts.generated";
+import { whyNotFor } from "@/lib/exercises/types";
 
 /**
  * Exercices sur les participes et gérondifs.
@@ -72,9 +73,30 @@ export interface ParticipleExercise {
   options: string[];
   correctIndex: number;
   explain: string;
+  /** Ce que dit chaque mauvaise option — voir `whyNotFor`. */
+  whyNot?: Record<string, string>;
 }
 
 type Rng = () => number;
+
+/**
+ * Ce que chaque forme du paradigme EST, pour la note sous une mauvaise
+ * réponse. Les leurres de ce module viennent tous du même verbe : ce qui les
+ * sépare n'est pas le sens mais la fonction de la forme, et c'est elle qu'il
+ * faut nommer.
+ */
+const FORM_SAYS = {
+  activePresent: "participe actif présent : l'action se déroule en même temps",
+  activePast: "participe actif passé : l'action appartient au passé",
+  activeVoice: "participe actif : le nom ferait l'action, alors qu'ici il la subit",
+  passiveVoice: "participe passif : le nom subirait l'action, alors qu'ici il la fait",
+  gerund: "gérondif : invariable, il se rapporte au verbe et ne qualifie aucun nom",
+  gerundImperfective: "gérondif imperfectif : une action simultanée à celle du verbe principal",
+  gerundPerfective: "gérondif perfectif : une action achevée avant celle du verbe principal",
+  participleForTime: "participe : il qualifie un nom, il ne remplace pas une subordonnée de temps",
+  short: "forme courte : attribut, elle affirme un état — « дверь закры́та »",
+  long: "forme longue : épithète, elle qualifie le nom — « закры́тая дверь »",
+};
 
 function pick<T>(items: T[], random: Rng): T {
   return items[Math.floor(random() * items.length)];
@@ -212,8 +234,13 @@ const ACTIVE_CONTEXTS: ActiveContext[] = [
   },
 ];
 
-function activeExercise(random: Rng): ParticipleExercise {
-  const context = pick(ACTIVE_CONTEXTS, random);
+/**
+ * Chaque tirage accepte un contexte IMPOSÉ en plus du hasard : c'est ce qui
+ * permet de reconstruire un exercice à partir de son identifiant (voir
+ * `rebuildParticipleExercise`).
+ */
+function activeExercise(random: Rng, forced?: ActiveContext): ParticipleExercise {
+  const context = forced ?? pick(ACTIVE_CONTEXTS, random);
   const verb = getVerb(context.verb)!;
   const correct = context.tense === "present" ? verb.activePresent : verb.activePastImp;
   const other = context.tense === "present" ? verb.activePastImp : verb.activePresent;
@@ -239,6 +266,12 @@ function activeExercise(random: Rng): ParticipleExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct} (${verb.imperfective}).`,
+    whyNot: whyNotFor(options, correct, [
+      [verb.activePresent, FORM_SAYS.activePresent],
+      [verb.activePastImp, FORM_SAYS.activePast],
+      [verb.gerundImp, FORM_SAYS.gerund],
+      [verb.passivePast, FORM_SAYS.passiveVoice],
+    ]),
   };
 }
 
@@ -376,13 +409,14 @@ const PASSIVE_CONTEXTS: PassiveContext[] = [
   },
 ];
 
-function passiveExercise(random: Rng): ParticipleExercise {
-  const context = pick(PASSIVE_CONTEXTS, random);
+function passiveExercise(random: Rng, forced?: PassiveContext): ParticipleExercise {
+  const context = forced ?? pick(PASSIVE_CONTEXTS, random);
   const verb = getVerb(context.verb)!;
   const correct = agree(verb.passivePast!, context.agreement);
 
   // Distracteurs : l'actif (contresens de voix), un mauvais accord, et le
   // gérondif. Trois erreurs réellement commises.
+  const wrongGender = context.agreement === "f" ? "masculin" : "féminin";
   const wrongAgreement = agree(verb.passivePast!, context.agreement === "f" ? "m" : "f");
   const distractors = [verb.activePastPerf, wrongAgreement, verb.gerundPerf].filter(
     (f): f is string => typeof f === "string" && f !== correct
@@ -402,6 +436,14 @@ function passiveExercise(random: Rng): ParticipleExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct}.`,
+    whyNot: whyNotFor(options, correct, [
+      [verb.activePastPerf, FORM_SAYS.activeVoice],
+      [
+        wrongAgreement,
+        `accord au ${wrongGender} singulier : le participe prend le genre et le nombre du nom qu'il qualifie`,
+      ],
+      [verb.gerundPerf, FORM_SAYS.gerund],
+    ]),
   };
 }
 
@@ -526,8 +568,8 @@ const SHORT_CONTEXTS: ShortContext[] = [
   },
 ];
 
-function shortExercise(random: Rng): ParticipleExercise {
-  const context = pick(SHORT_CONTEXTS, random);
+function shortExercise(random: Rng, forced?: ShortContext): ParticipleExercise {
+  const context = forced ?? pick(SHORT_CONTEXTS, random);
   const verb = getVerb(context.verb)!;
   const short = verb.passiveShort![context.agreement];
   const long = agree(verb.passivePast!, context.agreement, context.grammaticalCase);
@@ -543,6 +585,10 @@ function shortExercise(random: Rng): ParticipleExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct}.`,
+    whyNot: whyNotFor(options, correct, [
+      [short, FORM_SAYS.short],
+      [long, FORM_SAYS.long],
+    ]),
   };
 }
 
@@ -659,8 +705,8 @@ const GERUND_CONTEXTS: GerundContext[] = [
   },
 ];
 
-function gerundExercise(random: Rng): ParticipleExercise {
-  const context = pick(GERUND_CONTEXTS, random);
+function gerundExercise(random: Rng, forced?: GerundContext): ParticipleExercise {
+  const context = forced ?? pick(GERUND_CONTEXTS, random);
   const verb = getVerb(context.verb)!;
   const correct = context.aspect === "imperfective" ? verb.gerundImp! : verb.gerundPerf!;
   const other = context.aspect === "imperfective" ? verb.gerundPerf : verb.gerundImp;
@@ -683,6 +729,12 @@ function gerundExercise(random: Rng): ParticipleExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct}.`,
+    whyNot: whyNotFor(options, correct, [
+      [verb.gerundImp, FORM_SAYS.gerundImperfective],
+      [verb.gerundPerf, FORM_SAYS.gerundPerfective],
+      [verb.activePresent, FORM_SAYS.participleForTime],
+      [verb.activePastImp, FORM_SAYS.participleForTime],
+    ]),
   };
 }
 
@@ -862,8 +914,8 @@ const SUBJECT_ITEMS: SubjectItem[] = [
   },
 ];
 
-function subjectExercise(random: Rng): ParticipleExercise {
-  const item = pick(SUBJECT_ITEMS, random);
+function subjectExercise(random: Rng, forced?: SubjectItem): ParticipleExercise {
+  const item = forced ?? pick(SUBJECT_ITEMS, random);
   const { options, correctIndex } = shuffleWithAnswer(
     [item.correct, ...item.wrong],
     item.correct,
@@ -895,6 +947,44 @@ export function generateParticipleExercise(
   random: Rng = Math.random
 ): ParticipleExercise {
   return GENERATORS[skill](random);
+}
+
+/**
+ * L'exercice exact qu'un identifiant désigne, options remélangées — pour
+ * « Mes erreurs ». `null` si le contexte n'existe pas ou si son verbe n'a
+ * pas la forme que l'exercice demanderait.
+ */
+export function rebuildParticipleExercise(
+  itemId: string,
+  random: Rng = Math.random
+): ParticipleExercise | null {
+  const [kind, id] = itemId.split(":");
+  const verbOf = (verbId: string) => getVerb(verbId);
+
+  if (kind === "active") {
+    const context = ACTIVE_CONTEXTS.find((c) => c.id === id);
+    return context && verbOf(context.verb) ? activeExercise(random, context) : null;
+  }
+  if (kind === "passive") {
+    const context = PASSIVE_CONTEXTS.find((c) => c.id === id);
+    return context && verbOf(context.verb)?.passivePast ? passiveExercise(random, context) : null;
+  }
+  if (kind === "short") {
+    const context = SHORT_CONTEXTS.find((c) => c.id === id);
+    const verb = context ? verbOf(context.verb) : undefined;
+    return context && verb?.passivePast && verb.passiveShort ? shortExercise(random, context) : null;
+  }
+  if (kind === "gerund") {
+    const context = GERUND_CONTEXTS.find((c) => c.id === id);
+    const verb = context ? verbOf(context.verb) : undefined;
+    const form = context?.aspect === "imperfective" ? verb?.gerundImp : verb?.gerundPerf;
+    return context && form ? gerundExercise(random, context) : null;
+  }
+  if (kind === "subject") {
+    const item = SUBJECT_ITEMS.find((i) => i.id === id);
+    return item ? subjectExercise(random, item) : null;
+  }
+  return null;
 }
 
 /** Rejoue la correction côté serveur, à partir du seul identifiant d'item. */

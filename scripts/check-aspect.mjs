@@ -16,6 +16,7 @@ import { createJiti } from "jiti";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "./lib/cyrillic.mjs";
+import { practiceInvariants } from "./lib/practice-invariants.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": ROOT } });
@@ -191,6 +192,11 @@ for (const skill of X.ASPECT_SKILLS) {
     if (X.checkAspectAnswer(ex.itemId, answer) !== true) unverifiable += 1;
     const wrong = ex.options.find((o) => o !== answer);
     if (wrong && X.checkAspectAnswer(ex.itemId, wrong) !== false) unverifiable += 1;
+    // Deux options, deux aspects : la mauvaise doit toujours dire ce qu'elle aurait affirmé.
+    if (wrong && !ex.whyNot?.[wrong]) malformed += 1;
+    for (const problem of practiceInvariants(ex, X.rebuildAspectExercise, Math.random)) {
+      failures.push(`${skill.id} › ${ex.itemId} : ${problem}`);
+    }
 
     // La réponse doit être une forme de la paire du contexte : c'est le bug
     // « J'ai lu ce livre → решил » qu'on interdit ici par construction.
@@ -231,6 +237,10 @@ require_(
   "un contexte inconnu doit être rejeté"
 );
 require_(X.checkAspectAnswer("", "") === null, "un identifiant vide doit être rejeté");
+require_(
+  X.rebuildAspectExercise("past:inexistant:chitat") === null && X.rebuildAspectExercise("") === null,
+  "un identifiant inventé ne doit pas être reconstruit"
+);
 
 // ─── Rapport ───────────────────────────────────────────────────────
 /**

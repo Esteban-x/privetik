@@ -6,6 +6,7 @@ import {
   type TimelineSchema,
 } from "./verbs";
 import { EXTRA_CONTEXTS } from "./contexts.generated";
+import { whyNotFor } from "@/lib/exercises/types";
 
 /**
  * Exercices d'aspect.
@@ -82,9 +83,26 @@ export interface AspectExercise {
   options: string[];
   correctIndex: number;
   explain: string;
+  /** Ce que dit chaque mauvaise option — voir `whyNotFor`. */
+  whyNot?: Record<string, string>;
 }
 
 type Rng = () => number;
+
+/**
+ * Ce que chaque aspect DIT, en une phrase : c'est la note affichée sous une
+ * mauvaise réponse. Elle ne répète pas la règle du contexte — l'explication
+ * s'en charge — elle nomme ce que la forme choisie aurait affirmé.
+ */
+const SAYS = {
+  pastImperfective: "imperfectif : un déroulement, une durée ou une répétition, sans résultat affirmé",
+  pastPerfective: "perfectif : une action menée à son terme, un résultat",
+  futureImperfective: "futur imperfectif : une occupation à venir, sans résultat promis",
+  futurePerfective: "futur perfectif : un résultat promis",
+  imperativeImperfective: "impératif imperfectif : invitation, habitude ou interdiction",
+  imperativePerfective:
+    "impératif perfectif : une action ponctuelle à mener à terme — nié, il met en garde au lieu d'interdire",
+};
 
 function pick<T>(items: T[], random: Rng): T {
   return items[Math.floor(random() * items.length)];
@@ -299,13 +317,18 @@ const PAST_CONTEXTS: AspectContext[] = [
   },
 ];
 
-function pastExercise(random: Rng, onlyMarkers: boolean): AspectExercise {
+/**
+ * Chaque tirage accepte un contexte IMPOSÉ en plus du hasard : c'est ce qui
+ * permet de reconstruire un exercice à partir de son identifiant (voir
+ * `rebuildAspectExercise`). Le hasard ne sert plus alors qu'à mélanger.
+ */
+function pastExercise(random: Rng, onlyMarkers: boolean, forced?: AspectContext): AspectExercise {
   // Le mode « marqueurs » ne retient que les contextes dont le sens tient
   // dans un seul mot : c'est ce mot qu'on apprend à repérer.
   const contexts = onlyMarkers
     ? PAST_CONTEXTS.filter((c) => MARKER_OF[c.id] !== undefined)
     : PAST_CONTEXTS;
-  const context = pick(contexts, random);
+  const context = forced ?? pick(contexts, random);
   const pair = getPair(context.pair)!;
   const feminine = context.subject === "f";
   const imperfective = feminine ? pair.impPastF : pair.impPast;
@@ -330,6 +353,10 @@ function pastExercise(random: Rng, onlyMarkers: boolean): AspectExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct} (${pair.imperfective} / ${pair.perfective}).`,
+    whyNot: whyNotFor(options, correct, [
+      [imperfective, SAYS.pastImperfective],
+      [perfective, SAYS.pastPerfective],
+    ]),
   };
 }
 
@@ -481,8 +508,8 @@ const FUTURE_CONTEXTS: FutureContext[] = [
   },
 ];
 
-function futureExercise(random: Rng): AspectExercise {
-  const context = pick(FUTURE_CONTEXTS, random);
+function futureExercise(random: Rng, forced?: FutureContext): AspectExercise {
+  const context = forced ?? pick(FUTURE_CONTEXTS, random);
   const pair = getPair(context.pair)!;
   const imperfectiveFuture = `буду ${pair.imperfective}`;
   const correct = context.answer === "imperfective" ? imperfectiveFuture : pair.perfFuture1;
@@ -502,6 +529,10 @@ function futureExercise(random: Rng): AspectExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct}.`,
+    whyNot: whyNotFor(options, correct, [
+      [imperfectiveFuture, SAYS.futureImperfective],
+      [pair.perfFuture1, SAYS.futurePerfective],
+    ]),
   };
 }
 
@@ -660,9 +691,9 @@ function imperativesFor(
   return imperfective && perfective ? [imperfective, perfective] : null;
 }
 
-function imperativeExercise(random: Rng): AspectExercise {
+function imperativeExercise(random: Rng, forced?: ImperativeContext): AspectExercise {
   const usable = IMPERATIVE_CONTEXTS.filter((c) => imperativesFor(getPair(c.pair)!, c.address));
-  const context = pick(usable, random);
+  const context = forced ?? pick(usable, random);
   const pair = getPair(context.pair)!;
   const [imperfective, perfective] = imperativesFor(pair, context.address)!;
   const correct = context.answer === "imperfective" ? imperfective : perfective;
@@ -678,12 +709,16 @@ function imperativeExercise(random: Rng): AspectExercise {
     options,
     correctIndex,
     explain: `${context.why} Ici : ${correct}.`,
+    whyNot: whyNotFor(options, correct, [
+      [imperfective, SAYS.imperativeImperfective],
+      [perfective, SAYS.imperativePerfective],
+    ]),
   };
 }
 
 // ─── 5. Reconnaître la paire ───────────────────────────────────────
-function pairsExercise(random: Rng): AspectExercise {
-  const pair = pick(ASPECT_PAIRS, random);
+function pairsExercise(random: Rng, forced?: AspectPair): AspectExercise {
+  const pair = forced ?? pick(ASPECT_PAIRS, random);
   const others = ASPECT_PAIRS.filter((p) => p.id !== pair.id);
   const shuffled = [...others];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
@@ -705,6 +740,13 @@ function pairsExercise(random: Rng): AspectExercise {
     sentenceFr: pair.translation,
     options,
     correctIndex,
+    whyNot: whyNotFor(
+      options,
+      pair.perfective,
+      shuffled
+        .slice(0, 3)
+        .map((p): [string, string] => [p.perfective, `partenaire perfectif de « ${p.imperfective} » (${p.translation})`])
+    ),
     explain: `${pair.imperfective} → ${pair.perfective} (${FORMATION_LABEL[pair.formation]}). ${
       pair.formation === "suppletion"
         ? "Aucun rapport de forme entre les deux : cette paire s'apprend telle quelle."
@@ -726,6 +768,42 @@ export function generateAspectExercise(
   random: Rng = Math.random
 ): AspectExercise {
   return GENERATORS[skill](random);
+}
+
+/**
+ * L'exercice exact qu'un identifiant désigne, options remélangées — pour
+ * « Mes erreurs ». `null` si le contexte n'existe pas, ou s'il ne porte pas
+ * la paire annoncée : un contexte est lié à UNE paire, et un identifiant qui
+ * dit le contraire ne désigne aucun exercice que l'app sache produire.
+ */
+export function rebuildAspectExercise(
+  itemId: string,
+  random: Rng = Math.random
+): AspectExercise | null {
+  const [kind, ...rest] = itemId.split(":");
+
+  if (kind === "past" || kind === "markers") {
+    const context = PAST_CONTEXTS.find((c) => c.id === rest[0]);
+    if (!context || context.pair !== rest[1] || !getPair(context.pair)) return null;
+    if (kind === "markers" && MARKER_OF[context.id] === undefined) return null;
+    return pastExercise(random, kind === "markers", context);
+  }
+  if (kind === "future") {
+    const context = FUTURE_CONTEXTS.find((c) => c.id === rest[0]);
+    if (!context || context.pair !== rest[1] || !getPair(context.pair)) return null;
+    return futureExercise(random, context);
+  }
+  if (kind === "imperative") {
+    const context = IMPERATIVE_CONTEXTS.find((c) => c.id === rest[0]);
+    const pair = context && context.pair === rest[1] ? getPair(context.pair) : undefined;
+    if (!context || !pair || !imperativesFor(pair, context.address)) return null;
+    return imperativeExercise(random, context);
+  }
+  if (kind === "pairs") {
+    const pair = getPair(rest[0]);
+    return pair ? pairsExercise(random, pair) : null;
+  }
+  return null;
 }
 
 /**

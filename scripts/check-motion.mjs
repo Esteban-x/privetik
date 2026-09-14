@@ -21,6 +21,7 @@ import { createJiti } from "jiti";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "./lib/cyrillic.mjs";
+import { practiceInvariants } from "./lib/practice-invariants.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": ROOT } });
@@ -227,6 +228,12 @@ for (const skill of X.MOTION_SKILLS) {
     if (X.checkMotionAnswer(ex.itemId, answer) !== true) unverifiable += 1;
     const wrong = ex.options.find((o) => o !== answer);
     if (wrong && X.checkMotionAnswer(ex.itemId, wrong) !== false) unverifiable += 1;
+    // Les leurres de la compétence « préposition et cas » sont écrits à la
+    // main sans étiquette : c'est la seule qui peut s'en passer.
+    if (skill.id !== "government" && wrong && !ex.whyNot?.[wrong]) malformed += 1;
+    for (const problem of practiceInvariants(ex, X.rebuildMotionExercise, Math.random)) {
+      failures.push(`${skill.id} › ${ex.itemId} : ${problem}`);
+    }
 
     if ((skill.id === "mode" || skill.id === "direction") && MANNER_FORMS.has(answer)) {
       semanticMismatch += 1;
@@ -264,6 +271,11 @@ require_(
 require_(
   X.checkMotionAnswer("", "") === null,
   "un identifiant vide doit être rejeté"
+);
+require_(
+  X.rebuildMotionExercise("prefix:inexistant") === null &&
+    X.rebuildMotionExercise("mode:idti:на Луну́") === null,
+  "un identifiant qu'aucun tirage ne produit ne doit pas être reconstruit"
 );
 
 // ─── 4. Le sujet de la phrase et la forme attendue ────────────────

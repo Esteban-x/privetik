@@ -40,9 +40,14 @@ export function usePracticeAttempt(endpoint: string, feature = "practice") {
   // sans l'afficher encore. L'apprenant doit d'abord voir sa correction.
   const [lastOne, setLastOne] = useState<PracticeBlock | null>(null);
 
-  async function submit(body: unknown): Promise<AttemptOutcome> {
+  /**
+   * `target` remplace la route du hook pour cet envoi seulement : « Mes
+   * erreurs » mêle des exercices de six modules, chacun corrigé par la sienne,
+   * sous un seul péage — il est le même pour tous.
+   */
+  async function submit(body: unknown, target: string = endpoint): Promise<AttemptOutcome> {
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetch(target, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

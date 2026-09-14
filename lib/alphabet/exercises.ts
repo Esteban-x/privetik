@@ -3,6 +3,7 @@ import {
   buildOptions,
   pick,
   shuffle,
+  whyNotFor,
   type PracticeExercise,
   type Rng,
   type Skill,
@@ -121,8 +122,15 @@ const LETTERS: { letter: string; sound: string; example: string }[] = [
   { letter: "Ъ", sound: "aucun son : il sépare", example: "объе́кт" },
 ];
 
-function letterExercise(random: Rng): PracticeExercise {
-  const target = pick(LETTERS, random);
+type Letter = (typeof LETTERS)[number];
+
+/**
+ * Chaque tirage accepte un choix IMPOSÉ en plus du hasard : c'est ce qui
+ * permet de reconstruire un exercice à partir de son seul identifiant (voir
+ * `rebuildAlphabetExercise`).
+ */
+function letterExercise(random: Rng, forced?: Letter): PracticeExercise {
+  const target = forced ?? pick(LETTERS, random);
   // Tirage SANS remise : quatre `pick` indépendants peuvent ramener deux
   // fois le même son, et le QCM tombait alors à deux options — c'est-à-dire
   // à pile ou face.
@@ -137,6 +145,11 @@ function letterExercise(random: Rng): PracticeExercise {
     question: target.letter,
     options,
     correctIndex,
+    whyNot: whyNotFor(
+      options,
+      target.sound,
+      LETTERS.map((l) => [l.sound, `c'est la valeur de la lettre ${l.letter}`])
+    ),
     explain: `${target.letter} se lit « ${target.sound} » — comme dans ${target.example}.`,
   };
 }
@@ -187,8 +200,8 @@ function trapsIn(word: string): string[] {
   return Object.keys(TRAP_READING).filter((t) => word.toLowerCase().includes(t));
 }
 
-function trapExercise(random: Rng): PracticeExercise {
-  const word = pick(TRAP_WORDS, random);
+function trapExercise(random: Rng, forced?: string): PracticeExercise {
+  const word = forced ?? pick(TRAP_WORDS, random);
   const correct = transcribe(word, []);
   const present = trapsIn(word);
   // La lecture fautive complète, puis une fautive par lettre-piège : chaque
@@ -202,6 +215,16 @@ function trapExercise(random: Rng): PracticeExercise {
     question: word,
     options,
     correctIndex,
+    whyNot: whyNotFor(options, correct, [
+      [
+        candidates[0],
+        `lecture « à la latine » de ${present.map((t) => `« ${t} »`).join(" et ")}`,
+      ],
+      ...present.map((t): [string, string] => [
+        transcribe(word, [t]),
+        `« ${t} » lu comme le ${TRAP_READING[t]} latin — il vaut ${READING[t]}`,
+      ]),
+    ]),
     explain: present.length
       ? `Les pièges de ce mot : ${present.map((t) => `${t} = ${READING[t]}, pas ${TRAP_READING[t]}`).join(" ; ")}.`
       : "Aucun faux ami ici : toutes les lettres se lisent comme elles se prononcent.",
@@ -234,8 +257,8 @@ const STRESS_WORDS = NOUNS.filter((n) => {
   return vowels >= 3 && n.rank < 3000 && n.forms.singular[0].includes(ACCENT);
 }).slice(0, 90);
 
-function stressExercise(random: Rng): PracticeExercise {
-  const noun = pick(STRESS_WORDS, random);
+function stressExercise(random: Rng, forced?: (typeof STRESS_WORDS)[number]): PracticeExercise {
+  const noun = forced ?? pick(STRESS_WORDS, random);
   const accented = noun.forms.singular[0];
   const { correct, variants } = accentVariants(accented);
   const { options, correctIndex } = buildOptions(
@@ -434,8 +457,8 @@ const SPELLING_ITEMS: SpellingItem[] = [
   },
 ];
 
-function spellingExercise(random: Rng): PracticeExercise {
-  const item = pick(SPELLING_ITEMS, random);
+function spellingExercise(random: Rng, forced?: SpellingItem): PracticeExercise {
+  const item = forced ?? pick(SPELLING_ITEMS, random);
   const { options, correctIndex } = buildOptions(item.correct, item.wrong, random);
   return {
     itemId: `spelling:${item.id}`,
@@ -643,8 +666,8 @@ const SOUND_ITEMS: SoundItem[] = [
   },
 ];
 
-function soundExercise(random: Rng): PracticeExercise {
-  const item = pick(SOUND_ITEMS, random);
+function soundExercise(random: Rng, forced?: SoundItem): PracticeExercise {
+  const item = forced ?? pick(SOUND_ITEMS, random);
   const { options, correctIndex } = buildOptions(item.heard, item.wrong, random);
   return {
     itemId: `sounds:${item.id}`,
@@ -654,6 +677,12 @@ function soundExercise(random: Rng): PracticeExercise {
     options,
     correctIndex,
     explain: item.why,
+    // Le seul leurre dont on sait à coup sûr ce qu'il est : la lecture
+    // lettre à lettre, celle qu'on produit en lisant sans connaître la
+    // réduction des voyelles atones.
+    whyNot: whyNotFor(options, item.heard, [
+      [transcribe(item.word, []), "lecture lettre à lettre : ce qui est écrit, pas ce qu'on entend"],
+    ]),
   };
 }
 
@@ -678,6 +707,40 @@ export function generateAlphabetExercise(
       return soundExercise(random);
     default:
       throw new Error(`Compétence inconnue : ${skill}`);
+  }
+}
+
+/** L'exercice exact qu'un identifiant désigne, pour « Mes erreurs ». */
+export function rebuildAlphabetExercise(
+  itemId: string,
+  random: Rng = Math.random
+): PracticeExercise | null {
+  const separator = itemId.indexOf(":");
+  if (separator < 0) return null;
+  const skill = itemId.slice(0, separator);
+  const id = itemId.slice(separator + 1);
+
+  switch (skill) {
+    case "letters": {
+      const letter = LETTERS.find((l) => l.letter === id);
+      return letter ? letterExercise(random, letter) : null;
+    }
+    case "traps":
+      return TRAP_WORDS.includes(id) ? trapExercise(random, id) : null;
+    case "stress": {
+      const noun = STRESS_WORDS.find((n) => n.id === id);
+      return noun ? stressExercise(random, noun) : null;
+    }
+    case "spelling": {
+      const item = SPELLING_ITEMS.find((s) => s.id === id);
+      return item ? spellingExercise(random, item) : null;
+    }
+    case "sounds": {
+      const item = SOUND_ITEMS.find((s) => s.id === id);
+      return item ? soundExercise(random, item) : null;
+    }
+    default:
+      return null;
   }
 }
 

@@ -1,7 +1,14 @@
 import { NOUNS } from "@/lib/grammar/nouns-data";
 import { hasUsablePlural, isCountable } from "@/lib/grammar/noun-categories";
 import type { Noun } from "@/lib/grammar/types";
-import { buildOptions, pick, type PracticeExercise, type Rng, type Skill } from "@/lib/exercises/types";
+import {
+  buildOptions,
+  pick,
+  whyNotFor,
+  type PracticeExercise,
+  type Rng,
+  type Skill,
+} from "@/lib/exercises/types";
 
 /**
  * Nombres, heure et dates.
@@ -147,9 +154,19 @@ function agreeNumeral(word: string, noun: Noun): string {
   return word;
 }
 
-function agreementExercise(random: Rng): PracticeExercise {
-  const noun = pick(COUNTABLE, random);
-  const number = pick(AGREEMENT_NUMBERS, random);
+type AgreementNumber = (typeof AGREEMENT_NUMBERS)[number];
+
+/**
+ * Chaque tirage accepte un choix IMPOSÉ en plus du hasard : c'est ce qui
+ * permet de reconstruire un exercice à partir de son seul identifiant (voir
+ * `rebuildNumberExercise`). Le hasard ne sert plus alors qu'à mélanger.
+ */
+function agreementExercise(
+  random: Rng,
+  forced?: { noun: Noun; number: AgreementNumber }
+): PracticeExercise {
+  const noun = forced?.noun ?? pick(COUNTABLE, random);
+  const number = forced?.number ?? pick(AGREEMENT_NUMBERS, random);
   const correct = formFor(noun, number.zone);
   const numberWord = agreeNumeral(number.word, noun);
 
@@ -160,6 +177,12 @@ function agreementExercise(random: Rng): PracticeExercise {
     noun.forms.plural![0],
   ];
   const { options, correctIndex } = buildOptions(correct, candidates, random);
+  const whyNot = whyNotFor(options, correct, [
+    [noun.forms.singular[0], "nominatif singulier : la forme après 1, 21, 31…"],
+    [noun.forms.singular[1], "génitif singulier : la forme après 2, 3, 4"],
+    [noun.forms.plural![1], "génitif pluriel : la forme dès 5, et de 11 à 14"],
+    [noun.forms.plural![0], "nominatif pluriel : ce n'est pas la forme qui suit un nombre"],
+  ]);
 
   const last = number.value % 100;
   const why =
@@ -180,6 +203,7 @@ function agreementExercise(random: Rng): PracticeExercise {
     options,
     correctIndex,
     explain: why,
+    whyNot,
   };
 }
 
@@ -242,10 +266,16 @@ export function tellTime(hour: number, minute: number): string {
   return `без ${MINUTES_GEN[remaining]} ${HOUR_CARDINAL[nextHour(hour) - 1]}`;
 }
 
-function timeExercise(random: Rng): PracticeExercise {
-  const hour = 1 + Math.floor(random() * 12);
-  const minute = pick([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55], random);
+/** « 4 h 30 », « 5 h » : l'heure qu'une tournure russe désigne vraiment. */
+function clock(hour: number, minute: number): string {
+  return minute === 0 ? `${hour} h` : `${hour} h ${String(minute).padStart(2, "0")}`;
+}
+
+function timeExercise(random: Rng, forced?: { hour: number; minute: number }): PracticeExercise {
+  const hour = forced?.hour ?? 1 + Math.floor(random() * 12);
+  const minute = forced?.minute ?? pick([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55], random);
   const correct = tellTime(hour, minute);
+  const previousHour = hour === 1 ? 12 : hour - 1;
 
   // Trois leurres, trois erreurs réelles : l'heure en cours au lieu de la
   // suivante, la construction inversée autour de la demie, et une quantité
@@ -275,6 +305,29 @@ function timeExercise(random: Rng): PracticeExercise {
     random
   );
 
+  // CE QUE CHAQUE LEURRE DIT RÉELLEMENT. Ce ne sont pas des phrases fausses
+  // mais des heures fausses : « полови́на четвёртого » est une tournure
+  // parfaitement russe, qui désigne 3 h 30 et non 4 h 30. Le dire vaut mieux
+  // que « faux » — c'est exactement le décalage d'une heure que le module
+  // veut désamorcer.
+  const whyNot = whyNotFor(options, correct, [
+    [
+      wrongHour,
+      minute === 0
+        ? `c'est ${clock(nextHour(hour), 0)}`
+        : `veut dire ${clock(previousHour, minute)} : le russe nomme l'heure qui commence`,
+    ],
+    [
+      flipped,
+      minute === 30
+        ? "la demie se dit « полови́на », pas « trente minutes »"
+        : minute === 0
+          ? `c'est ${clock(hour, 30)}`
+          : `veut dire ${clock(hour, 60 - minute)}`,
+    ],
+    [wrongMinute, `c'est ${clock(hour, otherMinute)}`],
+  ]);
+
   const explain =
     minute === 0
       ? `${hour} h pile : le nombre commande l'accord de час — ${correct}.`
@@ -291,6 +344,7 @@ function timeExercise(random: Rng): PracticeExercise {
     options,
     correctIndex,
     explain,
+    whyNot,
   };
 }
 
@@ -363,10 +417,13 @@ const MONTHS_FR = [
   "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 ];
 
-function dateExercise(random: Rng): PracticeExercise {
-  const day = 1 + Math.floor(random() * DAY_ORDINAL_NOM.length);
-  const month = Math.floor(random() * 12);
-  const situate = random() < 0.5;
+function dateExercise(
+  random: Rng,
+  forced?: { day: number; month: number; situate: boolean }
+): PracticeExercise {
+  const day = forced?.day ?? 1 + Math.floor(random() * DAY_ORDINAL_NOM.length);
+  const month = forced?.month ?? Math.floor(random() * 12);
+  const situate = forced?.situate ?? random() < 0.5;
 
   const nom = `${DAY_ORDINAL_NOM[day - 1]} ${MONTHS_GEN[month]}`;
   const gen = `${DAY_ORDINAL_GEN[day - 1]} ${MONTHS_GEN[month]}`;
@@ -389,6 +446,12 @@ function dateExercise(random: Rng): PracticeExercise {
     badge: `${day} / ${month + 1}`,
     options,
     correctIndex,
+    whyNot: whyNotFor(options, correct, [
+      [nom, "nominatif : la forme pour ANNONCER la date — « Сего́дня… »"],
+      [gen, "génitif : la forme pour SITUER un événement — « Он прие́дет… »"],
+      [candidates[1], "mois au nominatif : dans une date, le mois reste au génitif"],
+      [candidates[2], "mois au nominatif : dans une date, le mois reste au génitif"],
+    ]),
     explain: situate
       ? "Pour SITUER un événement, l'ordinal passe au génitif, et sans aucune préposition. Le mois reste au génitif dans les deux cas."
       : "Pour ANNONCER la date, l'ordinal est au nominatif neutre (число́ sous-entendu) et le mois au génitif.",
@@ -426,14 +489,20 @@ const AGE_NUMERALS: Record<number, string> = {
   51: "пятьдеся́т оди́н",
 };
 
-function ageExercise(random: Rng): PracticeExercise {
+function ageExercise(random: Rng, forcedAge?: number): PracticeExercise {
   const person = pick(PEOPLE, random);
-  const age = pick(AGES, random);
+  const age = forcedAge ?? pick(AGES, random);
   const correct = yearWord(age);
   const { options, correctIndex } = buildOptions(correct, ["год", "го́да", "лет", "года́м"], random);
   const last = age % 100;
 
   return {
+    whyNot: whyNotFor(options, correct, [
+      ["год", "nominatif singulier : après 1, 21, 31…"],
+      ["го́да", "génitif singulier : après 2, 3, 4"],
+      ["лет", "génitif pluriel : dès 5, et de 11 à 14"],
+      ["года́м", "datif pluriel : il ne sert pas à dire l'âge"],
+    ]),
     itemId: `age:${age}`,
     prompt: "Complète",
     question: `${person.subject} ${AGE_NUMERALS[age]} ___.`,
@@ -654,8 +723,20 @@ const DURATION_DISTRACTORS: Record<string, string[]> = {
   "на три но́чи": ["три но́чи", "за три но́чи", "че́рез три но́чи"],
 };
 
-function durationExercise(random: Rng): PracticeExercise {
-  const context = pick(DURATION_CONTEXTS, random);
+/**
+ * Ce que dit chaque construction de temps, quelle que soit la durée : les
+ * quatre options d'un item reprennent la même expression (voir
+ * check:exercises), c'est donc la préposition seule qui les distingue.
+ */
+function durationNote(option: string): string {
+  if (option.startsWith("за ")) return "за + accusatif : le temps mis pour obtenir un résultat";
+  if (option.startsWith("че́рез ")) return "че́рез + accusatif : au bout de ce délai, l'événement a lieu";
+  if (option.startsWith("на ")) return "на + accusatif : la durée prévue du résultat, une fois l'action faite";
+  return "accusatif seul : la durée de l'activité elle-même";
+}
+
+function durationExercise(random: Rng, forced?: DurationContext): PracticeExercise {
+  const context = forced ?? pick(DURATION_CONTEXTS, random);
   const { options, correctIndex } = buildOptions(
     context.correct,
     DURATION_DISTRACTORS[context.correct] ?? DURATION_OPTIONS,
@@ -669,6 +750,11 @@ function durationExercise(random: Rng): PracticeExercise {
     options,
     correctIndex,
     explain: context.why,
+    whyNot: whyNotFor(
+      options,
+      context.correct,
+      options.map((option) => [option, durationNote(option)])
+    ),
   };
 }
 
@@ -690,6 +776,52 @@ export function generateNumberExercise(skill: string, random: Rng = Math.random)
       return durationExercise(random);
     default:
       throw new Error(`Compétence inconnue : ${skill}`);
+  }
+}
+
+/**
+ * L'exercice exact qu'un identifiant désigne, options remélangées — pour
+ * « Mes erreurs ». `null` si l'identifiant ne correspond à aucun tirage
+ * possible. L'âge ne garde pas la personne (« Мне », « Ей ») : elle ne
+ * change rien à la réponse, et un sujet différent au retour évite de
+ * reconnaître la phrase plutôt que la règle.
+ */
+export function rebuildNumberExercise(
+  itemId: string,
+  random: Rng = Math.random
+): PracticeExercise | null {
+  const [skill, ...rest] = itemId.split(":");
+  switch (skill) {
+    case "agreement": {
+      const noun = COUNTABLE.find((n) => n.id === rest[0]);
+      const number = AGREEMENT_NUMBERS.find((n) => String(n.value) === rest[1]);
+      return noun && number ? agreementExercise(random, { noun, number }) : null;
+    }
+    case "time": {
+      const hour = Number(rest[0]);
+      const minute = Number(rest[1]);
+      if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+      if (hour < 1 || hour > 12 || minute < 0 || minute % 5 !== 0 || minute > 55) return null;
+      return timeExercise(random, { hour, minute });
+    }
+    case "date": {
+      const day = Number(rest[0]);
+      const month = Number(rest[1]);
+      if (!(Number.isInteger(day) && day >= 1 && day <= DAY_ORDINAL_NOM.length)) return null;
+      if (!(Number.isInteger(month) && month >= 0 && month <= 11)) return null;
+      if (rest[2] !== "when" && rest[2] !== "what") return null;
+      return dateExercise(random, { day, month, situate: rest[2] === "when" });
+    }
+    case "age": {
+      const age = Number(rest[0]);
+      return (AGES as readonly number[]).includes(age) ? ageExercise(random, age) : null;
+    }
+    case "duration": {
+      const context = DURATION_CONTEXTS.find((c) => c.id === rest[0]);
+      return context ? durationExercise(random, context) : null;
+    }
+    default:
+      return null;
   }
 }
 

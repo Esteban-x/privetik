@@ -25,8 +25,14 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": ROOT } });
-const { ADJECTIVE_SKILLS, ADJECTIVE_CONTEXTS, generateAdjectiveExercise, checkAdjectiveAnswer } =
-  await jiti.import("../lib/adjectives/exercises.ts");
+const {
+  ADJECTIVE_SKILLS,
+  ADJECTIVE_CONTEXTS,
+  generateAdjectiveExercise,
+  checkAdjectiveAnswer,
+  rebuildAdjectiveExercise,
+} = await jiti.import("../lib/adjectives/exercises.ts");
+const { practiceInvariants } = await import("./lib/practice-invariants.mjs");
 const { getAdjective } = await jiti.import("../lib/grammar/adjectives-data.ts");
 const { getNoun } = await jiti.import("../lib/grammar/nouns-data.ts");
 const { declineAdjective } = await jiti.import("../lib/grammar/decline-adjective.ts");
@@ -223,6 +229,29 @@ for (const skill of ADJECTIVE_SKILLS) {
     }
   }
 }
+// Notes et reconstruction, sur chaque contexte : chaque leurre doit dire
+// quelle case du tableau il occupe.
+for (const skill of ADJECTIVE_SKILLS) {
+  for (const context of ADJECTIVE_CONTEXTS[skill.id]) {
+    const ex = rebuildAdjectiveExercise(`${skill.id}:${context.id}`, Math.random);
+    if (!ex) {
+      failures.push(`« ${context.id} » : non reconstruit depuis son identifiant`);
+      continue;
+    }
+    for (const problem of practiceInvariants(ex, rebuildAdjectiveExercise, Math.random)) {
+      failures.push(`« ${context.id} » : ${problem}`);
+    }
+    const correct = ex.options[ex.correctIndex];
+    for (const option of ex.options) {
+      if (option !== correct && !/^forme (du |de l')/.test(ex.whyNot?.[option] ?? "")) {
+        failures.push(`« ${context.id} » : le leurre « ${option} » ne dit pas quelle forme il est`);
+      }
+    }
+    checks += 1;
+  }
+}
+expect("identifiant inventé non reconstruit", rebuildAdjectiveExercise("nominative:inexistant"), null);
+
 expect("identifiant d'item inconnu rejeté", checkAdjectiveAnswer("nominative:inexistant", "x"), null);
 expect("compétence inconnue rejetée", checkAdjectiveAnswer("inexistante:x", "x"), null);
 

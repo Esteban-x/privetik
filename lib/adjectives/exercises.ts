@@ -1,4 +1,5 @@
-import { CaseId, Gender } from "@/lib/grammar/types";
+import { CASE_ORDER, CaseId, Gender } from "@/lib/grammar/types";
+import { normalizeTyped, whyNotFor } from "@/lib/exercises/types";
 import { getAdjective } from "@/lib/grammar/adjectives-data";
 import { getNoun } from "@/lib/grammar/nouns-data";
 import { declineAdjective } from "@/lib/grammar/decline-adjective";
@@ -572,6 +573,8 @@ export interface AdjectiveExercise {
   options: string[];
   correctIndex: number;
   explain: string;
+  /** La case du tableau que chaque mauvaise option occupe — voir `whyNotFor`. */
+  whyNot?: Record<string, string>;
 }
 
 type Rng = () => number;
@@ -581,6 +584,72 @@ const GENDER_LABEL: Record<Gender, string> = {
   feminine: "féminin",
   neuter: "neutre",
 };
+
+const CASE_LABEL: Record<CaseId, string> = {
+  nominative: "nominatif",
+  genitive: "génitif",
+  dative: "datif",
+  accusative: "accusatif",
+  instrumental: "instrumental",
+  prepositional: "prépositionnel",
+};
+
+const GENDERS: Gender[] = ["masculine", "feminine", "neuter"];
+
+/** « génitif », « génitif ou datif », « génitif, datif ou prépositionnel ». */
+function orList(words: string[]): string {
+  return words.length <= 1
+    ? (words[0] ?? "")
+    : `${words.slice(0, -1).join(", ")} ou ${words[words.length - 1]}`;
+}
+
+/**
+ * Toutes les cases du tableau qu'une forme occupe, pour ce nom.
+ *
+ * POURQUOI TOUTES. Une désinence d'adjectif en couvre souvent plusieurs :
+ * « но́вой » est à la fois génitif, datif, instrumental et prépositionnel
+ * féminin. Dire à quelqu'un qui l'a choisie « c'est le datif » serait
+ * vrai et trompeur à la fois — il a peut-être pensé génitif. On nomme donc
+ * la ligne entière, genres fusionnés quand ils partagent les mêmes cas
+ * (« masculin et neutre »), et le genre omis quand les trois coïncident.
+ *
+ * L'animacité du nom est gardée : c'est elle qui décide si l'accusatif
+ * masculin copie le nominatif ou le génitif.
+ */
+function paradigmCells(
+  adjective: NonNullable<ReturnType<typeof getAdjective>>,
+  form: string,
+  animacy: "animate" | "inanimate"
+): string {
+  const singular = new Map<Gender, CaseId[]>();
+  const plural: CaseId[] = [];
+  for (const c of CASE_ORDER) {
+    for (const g of GENDERS) {
+      if (declineAdjective(adjective, c, g, false, animacy).accented === form) {
+        singular.set(g, [...(singular.get(g) ?? []), c]);
+      }
+    }
+    if (declineAdjective(adjective, c, "masculine", true, animacy).accented === form) plural.push(c);
+  }
+
+  const groups = new Map<string, { cases: CaseId[]; genders: Gender[] }>();
+  for (const [gender, cases] of singular) {
+    const key = cases.join(",");
+    const group = groups.get(key) ?? { cases, genders: [] };
+    group.genders.push(gender);
+    groups.set(key, group);
+  }
+
+  const parts = [...groups.values()].map(({ cases, genders }) => {
+    const who =
+      genders.length === GENDERS.length
+        ? ""
+        : ` ${genders.map((g) => GENDER_LABEL[g]).join(" et ")}`;
+    return `${orList(cases.map((c) => CASE_LABEL[c]))}${who} singulier`;
+  });
+  if (plural.length > 0) parts.push(`${orList(plural.map((c) => CASE_LABEL[c]))} pluriel`);
+  return parts.join(" ; ");
+}
 
 /** Résout un contexte : formes calculées, phrase montée. Null si un id ment. */
 function resolve(context: AdjectiveContext) {
@@ -635,15 +704,17 @@ function distractors(
 
 export function generateAdjectiveExercise(
   skill: AdjectiveSkillId,
-  random: Rng = Math.random
+  random: Rng = Math.random,
+  /** Contexte imposé : c'est ce qui permet `rebuildAdjectiveExercise`. */
+  forced?: AdjectiveContext
 ): AdjectiveExercise {
   const pool = CONTEXTS[skill];
-  const context = pool[Math.floor(random() * pool.length)];
+  const context = forced ?? pool[Math.floor(random() * pool.length)];
   const resolved = resolve(context);
   // `resolve` ne peut échouer que sur un identifiant faux, ce que
   // `npm run check:adjectives` interdit avant toute exécution.
   if (!resolved) throw new Error(`Contexte invalide : ${context.id}`);
-  const { noun, plural, adjResult, nounResult } = resolved;
+  const { adjective, noun, plural, adjResult, nounResult } = resolved;
 
   // La forme ACCENTUÉE : la phrase au-dessus l'est (« На на́шей у́лице ___
   // дом. »), et des boutons nus juste en dessous donnaient deux
@@ -667,7 +738,28 @@ export function generateAdjectiveExercise(
     options,
     correctIndex: options.indexOf(correct),
     explain: context.why,
+    whyNot: whyNotFor(
+      options,
+      correct,
+      options.map((option) => {
+        const cells = paradigmCells(adjective, option, noun.animacy);
+        // « forme DE L'instrumental », « forme DU génitif » : l'élision suit
+        // le premier cas nommé.
+        return [option, `forme ${/^[aeiouy]/.test(cells) ? "de l'" : "du "}${cells}`];
+      })
+    ),
   };
+}
+
+/** L'exercice exact qu'un identifiant désigne, options remélangées — pour « Mes erreurs ». */
+export function rebuildAdjectiveExercise(
+  itemId: string,
+  random: Rng = Math.random
+): AdjectiveExercise | null {
+  const [skill, id] = itemId.split(":");
+  const context = CONTEXTS[skill as AdjectiveSkillId]?.find((c) => c.id === id);
+  if (!context || !resolve(context)) return null;
+  return generateAdjectiveExercise(skill as AdjectiveSkillId, random, context);
 }
 
 /** Rejoue la correction côté serveur, à partir du seul identifiant d'item. */
@@ -679,9 +771,12 @@ export function checkAdjectiveAnswer(itemId: string, answer: string): boolean | 
   if (!context) return null;
   const resolved = resolve(context);
   if (!resolved) return null;
-  // Comparaison sans accent : l'apprenant clique une option accentuée, mais
-  // une réponse enregistrée avant que la banque le soit doit rester juste.
-  return stripAccent(resolved.adjResult.accented) === stripAccent(answer);
+  // Comparaison sans accent, sans casse et sans ё : l'apprenant clique une
+  // option accentuée, ou TAPE la forme — et personne ne tape l'accent. Les
+  // formes d'un même adjectif diffèrent toutes par leur désinence, jamais par
+  // leur seul accent : cette tolérance ne fait accepter aucun leurre, ce que
+  // check:adjectives vérifie sur chaque contexte.
+  return normalizeTyped(stripAccent(resolved.adjResult.accented)) === normalizeTyped(answer);
 }
 
 export { CONTEXTS as ADJECTIVE_CONTEXTS };

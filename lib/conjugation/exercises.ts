@@ -5,7 +5,14 @@ import {
   getVerb,
   type Verb,
 } from "@/lib/conjugation/verbs";
-import { buildOptions, pick, type PracticeExercise, type Rng, type Skill } from "@/lib/exercises/types";
+import {
+  buildOptions,
+  pick,
+  whyNotFor,
+  type PracticeExercise,
+  type Rng,
+  type Skill,
+} from "@/lib/exercises/types";
 
 /**
  * Conjugaison — le module que le programme réclamait.
@@ -58,6 +65,17 @@ export const CONJUGATION_SKILLS: Skill[] = [
 ];
 
 export type ConjugationSkillId = (typeof CONJUGATION_SKILLS)[number]["id"];
+
+/**
+ * Les compétences qu'on peut aussi ÉCRIRE plutôt que choisir.
+ *
+ * LE PASSÉ N'EN EST PAS. Son leurre principal ne diffère de la réponse que
+ * par l'accent — « жи́ла » contre « жила́ » — et une réponse tapée perd
+ * l'accent : les deux seraient la même chaîne, et l'exercice ne mesurerait
+ * plus rien. check:exercises vérifie qu'aucune compétence listée ici n'a de
+ * leurre qui se confonde avec la réponse une fois l'accent retiré.
+ */
+export const TYPABLE_CONJUGATION_SKILLS = ["present1", "present2", "mutation", "imperative"];
 
 export function getConjugationSkill(id: string): Skill | undefined {
   return CONJUGATION_SKILLS.find((s) => s.id === id);
@@ -158,11 +176,29 @@ export const SHIFTING_VERBS = VERBS.filter((v) => pastWithoutShift(v) !== null);
 // Les cinq tirages
 // ─────────────────────────────────────────────────────────────────
 
-function presentExercise(pool: Verb[], skill: string, random: Rng): PracticeExercise {
-  const verb = pick(pool, random);
+/** « forme de « ты » » pour chaque autre personne du présent proposée en leurre. */
+function personNotes(verb: Verb): [string, string][] {
+  return verb.present.map((form, i) => [form, `forme de « ${PERSONS[i]} »`]);
+}
+
+/**
+ * Chaque tirage accepte un choix IMPOSÉ, en plus du hasard.
+ *
+ * C'est ce qui permet de reconstruire un exercice à partir de son seul
+ * identifiant (voir `rebuildConjugationExercise`) : une erreur enregistrée
+ * doit pouvoir revenir telle quelle, le lendemain, sans qu'on ait gardé
+ * l'exercice. Le hasard ne sert plus alors qu'à mélanger les options.
+ */
+function presentExercise(
+  pool: Verb[],
+  skill: string,
+  random: Rng,
+  forced?: { verb: Verb; person: number }
+): PracticeExercise {
+  const verb = forced?.verb ?? pick(pool, random);
   // La première personne ne distingue pas les deux conjugaisons (-ю dans
   // les deux) : la demander n'apprendrait rien ici.
-  const person = 1 + Math.floor(random() * 5);
+  const person = forced?.person ?? 1 + Math.floor(random() * 5);
   const correct = verb.present[person];
 
   const candidates: string[] = [];
@@ -171,8 +207,14 @@ function presentExercise(pool: Verb[], skill: string, random: Rng): PracticeExer
   for (const other of verb.present) if (other !== correct) candidates.push(other);
 
   const { options, correctIndex } = buildOptions(correct, candidates, random);
+  const ownClass = verb.conjugation === "first" ? "1ʳᵉ" : "2ᵉ";
+  const otherClass = verb.conjugation === "first" ? "2ᵉ" : "1ʳᵉ";
 
   return {
+    whyNot: whyNotFor(options, correct, [
+      [cross, `terminaison de la ${otherClass} conjugaison — ${verb.infinitive} est de la ${ownClass}`],
+      ...personNotes(verb),
+    ]),
     itemId: `${skill}:${verb.id}:${person}`,
     prompt: "Conjugue",
     question: `${PERSONS[person]} ___`,
@@ -187,11 +229,14 @@ function presentExercise(pool: Verb[], skill: string, random: Rng): PracticeExer
   };
 }
 
-function mutationExercise(random: Rng): PracticeExercise {
-  const verb = pick(MUTATION_VERBS, random);
+function mutationExercise(
+  random: Rng,
+  forced?: { verb: Verb; person: number }
+): PracticeExercise {
+  const verb = forced?.verb ?? pick(MUTATION_VERBS, random);
   // L'alternance se voit à la 1ʳᵉ personne du singulier dans les deux
   // conjugaisons ; en première conjugaison elle vaut aussi ailleurs.
-  const person = verb.conjugation === "second" ? 0 : pick([0, 1, 5], random);
+  const person = forced?.person ?? (verb.conjugation === "second" ? 0 : pick([0, 1, 5], random));
   const correct = verb.present[person];
 
   const candidates = [verb.mutation!.naive];
@@ -200,6 +245,10 @@ function mutationExercise(random: Rng): PracticeExercise {
   const { options, correctIndex } = buildOptions(correct, candidates, random);
 
   return {
+    whyNot: whyNotFor(options, correct, [
+      [verb.mutation!.naive, `sans l'alternance ${verb.mutation!.label}, obligatoire ici`],
+      ...personNotes(verb),
+    ]),
     itemId: `mutation:${verb.id}:${person}`,
     prompt: "Conjugue",
     question: `${PERSONS[person]} ___`,
@@ -249,11 +298,15 @@ function imperativeFollowsTheyStem(verb: Verb): boolean {
   return imperative.startsWith(stem) || imperative.startsWith(stem.replace(/ь$/, ""));
 }
 
-function pastExercise(random: Rng): PracticeExercise {
+function pastExercise(
+  random: Rng,
+  forced?: { verb: Verb; feminine: boolean }
+): PracticeExercise {
   // Deux tirages sur trois portent sur un verbe à accent mobile : c'est là
   // qu'est la difficulté, et elle ne se travaille pas sur « чита́л ».
-  const verb = random() < 0.66 ? pick(SHIFTING_VERBS, random) : pick(VERBS, random);
-  const feminine = random() < 0.5;
+  const verb =
+    forced?.verb ?? (random() < 0.66 ? pick(SHIFTING_VERBS, random) : pick(VERBS, random));
+  const feminine = forced?.feminine ?? random() < 0.5;
   const correct = feminine ? verb.past[1] : verb.past[0];
 
   const candidates = [feminine ? verb.past[0] : verb.past[1], verb.infinitive, verb.present[2]];
@@ -263,6 +316,16 @@ function pastExercise(random: Rng): PracticeExercise {
   const { options, correctIndex } = buildOptions(correct, candidates, random);
 
   return {
+    whyNot: whyNotFor(options, correct, [
+      [
+        feminine && shifted ? shifted : null,
+        "l'accent du masculin gardé : au féminin, il passe sur la terminaison",
+      ],
+      [verb.past[0], "passé masculin — le sujet est « Она́ »"],
+      [verb.past[1], "passé féminin — le sujet est « Он »"],
+      [verb.infinitive, "infinitif, pas le passé"],
+      [verb.present[2], "forme conjuguée de « он / она́ », pas le passé"],
+    ]),
     itemId: `past:${verb.id}:${feminine ? "f" : "m"}`,
     prompt: "Mets au passé",
     question: `${feminine ? "Она́" : "Он"} ___`,
@@ -277,14 +340,19 @@ function pastExercise(random: Rng): PracticeExercise {
   };
 }
 
-function imperativeExercise(random: Rng): PracticeExercise {
-  const verb = pick(WITH_IMPERATIVE, random);
+function imperativeExercise(random: Rng, forced?: Verb): PracticeExercise {
+  const verb = forced ?? pick(WITH_IMPERATIVE, random);
   const correct = verb.imperative!;
 
   const candidates = [verb.present[1], verb.present[5], verb.infinitive];
   const { options, correctIndex } = buildOptions(correct, candidates, random);
 
   return {
+    whyNot: whyNotFor(options, correct, [
+      [verb.present[1], "« ты » au présent : une constatation, pas un ordre"],
+      [verb.present[5], "« они́ » au présent : une constatation, pas un ordre"],
+      [verb.infinitive, "infinitif, pas l'impératif"],
+    ]),
     itemId: `imperative:${verb.id}`,
     prompt: "Donne l'ordre (à « ты »)",
     question: "___!",
@@ -322,6 +390,43 @@ export function generateConjugationExercise(
       return imperativeExercise(random);
     default:
       throw new Error(`Compétence inconnue : ${skill}`);
+  }
+}
+
+/**
+ * L'exercice exact qu'un identifiant désigne, options remélangées.
+ *
+ * Sert à « Mes erreurs » : l'erreur est enregistrée par son seul `itemId`,
+ * et revient le lendemain sous la même forme — même verbe, même personne.
+ * `null` pour un identifiant qui ne correspond à aucun tirage possible, y
+ * compris un verbe réel servi hors de son onglet.
+ */
+export function rebuildConjugationExercise(
+  itemId: string,
+  random: Rng = Math.random
+): PracticeExercise | null {
+  const [skill, verbId, extra] = itemId.split(":");
+  const verb = getVerb(verbId ?? "");
+  if (!verb) return null;
+  const person = Number(extra);
+
+  switch (skill) {
+    case "present1":
+    case "present2": {
+      const pool = skill === "present1" ? FIRST_REGULAR : SECOND_REGULAR;
+      if (!pool.includes(verb) || !Number.isInteger(person) || person < 1 || person > 5) return null;
+      return presentExercise(pool, skill, random, { verb, person });
+    }
+    case "mutation":
+      if (!verb.mutation || !Number.isInteger(person) || person < 0 || person > 5) return null;
+      return mutationExercise(random, { verb, person });
+    case "past":
+      if (extra !== "m" && extra !== "f") return null;
+      return pastExercise(random, { verb, feminine: extra === "f" });
+    case "imperative":
+      return verb.imperative ? imperativeExercise(random, verb) : null;
+    default:
+      return null;
   }
 }
 

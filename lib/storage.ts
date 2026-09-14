@@ -14,6 +14,7 @@ const KEYS = {
   lastVocabList: "ru-app:vocab-last-list",
   caseNumber: "ru-app:case-number",
   recentDraws: "ru-app:practice-recent",
+  answerMode: "ru-app:answer-mode", // + `:${module}`
 };
 
 /** Exposée pour lib/courses/use-read-lessons.ts, qui lit le brut sans le parser. */
@@ -60,6 +61,30 @@ export function loadDirection(mode: VocabMode, fallback: VocabDirection): VocabD
 export function saveDirection(mode: VocabMode, direction: VocabDirection) {
   if (typeof window === "undefined") return;
   localStorage.setItem(`${KEYS.direction}:${mode}`, direction);
+}
+
+// --- Exercices : choisir la réponse, ou l'écrire ---
+//
+// Même statut que le sens de révision : une façon de travailler, gardée par
+// module sur l'appareil. Quelqu'un qui a choisi d'écrire ses conjugaisons ne
+// doit pas le redemander à chaque compétence.
+
+export type AnswerMode = "choice" | "typing";
+
+export function loadAnswerMode(scope: string): AnswerMode {
+  if (typeof window === "undefined") return "choice";
+  try {
+    return localStorage.getItem(`${KEYS.answerMode}:${scope}`) === "typing" ? "typing" : "choice";
+  } catch {
+    return "choice";
+  }
+}
+
+export function saveAnswerMode(scope: string, mode: AnswerMode) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(`${KEYS.answerMode}:${scope}`, mode);
+  } catch {}
 }
 
 // --- Formulaire d'ajout : quelle langue en premier ---

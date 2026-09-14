@@ -16,6 +16,7 @@ import { createJiti } from "jiti";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "./lib/cyrillic.mjs";
+import { practiceInvariants } from "./lib/practice-invariants.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": ROOT } });
@@ -270,6 +271,9 @@ for (const skill of X.PARTICIPLE_SKILLS) {
     if (X.checkParticipleAnswer(ex.itemId, answer) !== true) unverifiable += 1;
     const wrong = ex.options.find((o) => o !== answer);
     if (wrong && X.checkParticipleAnswer(ex.itemId, wrong) !== false) unverifiable += 1;
+    for (const problem of practiceInvariants(ex, X.rebuildParticipleExercise, Math.random)) {
+      failures.push(`${skill.id} › ${ex.itemId} : ${problem}`);
+    }
 
     // Les exercices de transformation montrent la proposition dépliée : sans
     // elle, l'apprenant devrait deviner ce qu'il comprime.
@@ -291,6 +295,10 @@ require_(
   "un contexte inconnu doit être rejeté"
 );
 require_(X.checkParticipleAnswer("", "") === null, "un identifiant vide doit être rejeté");
+require_(
+  X.rebuildParticipleExercise("active:inexistant") === null && X.rebuildParticipleExercise("") === null,
+  "un identifiant inventé ne doit pas être reconstruit"
+);
 
 // ─── Rapport ───────────────────────────────────────────────────────
 const ACCENTED_FORMS = V.PARTICIPLE_VERBS.flatMap((v) =>
