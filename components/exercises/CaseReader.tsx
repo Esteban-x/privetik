@@ -11,6 +11,7 @@ import { isQuotaError, type QuotaInfo } from "@/lib/billing/quota-client";
 import { speakRu } from "@/lib/vocabulary/speech";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
 import AiSpark from "@/components/ui/AiSpark";
+import Button from "@/components/ui/Button";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import { LoadingDots } from "@/components/ui/Skeleton";
 import { CheckIcon, CrossIcon } from "@/components/ui/icons";
@@ -556,22 +557,23 @@ function WordPanel({
             <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">
               Pourquoi ce cas&nbsp;?
             </p>
-            <WhyBody
-              sentence={sentence}
-              index={index}
-              info={info}
-              why={why}
-              unverified={unverified}
-              help={help}
-              canAskAi={canAskAi}
-              onExplain={onExplain}
-            />
-            <Link
-              href={`/cases/${info.id}`}
-              className="mt-3 inline-block text-xs font-semibold text-accent-ink underline-offset-2 hover:underline"
-            >
-              Revoir {theCase(info)} →
-            </Link>
+            <WhyBody sentence={sentence} index={index} info={info} why={why} unverified={unverified} />
+            {/* UNE RANGÉE, PAS DEUX ÉLÉMENTS EN LIGNE. Le bouton de l'IA et le
+                lien vers le cas étaient deux voisins inline sans espace : le
+                lien venait se coller contre la bordure du bouton. Le flex
+                pose l'écart, aligne leurs milieux, et laisse un état qui
+                prend toute la largeur (attente, quota) pousser le lien à la
+                ligne. */}
+            <div className="@container mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+              {canAskAi && !why && <AiHelp state={help} onExplain={onExplain} />}
+              <Link
+                href={`/cases/${info.id}`}
+                className="inline-flex items-center gap-1 text-[13px] font-semibold text-accent-ink underline-offset-2 hover:underline"
+              >
+                Revoir {theCase(info)}
+                <span aria-hidden>→</span>
+              </Link>
+            </div>
           </div>
         </>
       )}
@@ -608,18 +610,12 @@ function WhyBody({
   info,
   why,
   unverified,
-  help,
-  canAskAi,
-  onExplain,
 }: {
   sentence: GlossedWord[];
   index: number;
   info: CaseInfo;
   why: CaseWhy | undefined;
   unverified: boolean;
-  help: SentenceHelp | undefined;
-  canAskAi: boolean;
-  onExplain: () => void;
 }) {
   const hint = caseHint(sentence, index);
   const caseName = info.nameFr.toLowerCase();
@@ -687,49 +683,55 @@ function WhyBody({
     );
   }
 
-  return (
-    <>
-      {fallback}
-      {canAskAi && (
-        <AiHelp state={help} onExplain={onExplain} />
-      )}
-    </>
-  );
+  return fallback;
 }
 
+/**
+ * L'aide de l'IA, posée dans la rangée d'actions du panneau. Le bouton y
+ * garde sa largeur naturelle ; les états qui ont quelque chose à dire
+ * (attente, quota, mot non justifié) prennent toute la ligne.
+ */
 function AiHelp({ state, onExplain }: { state: SentenceHelp | undefined; onExplain: () => void }) {
   if (!state) {
+    // DEUX LONGUEURS, SELON LA PLACE DU PANNEAU. `.btn` ne passe jamais à la
+    // ligne : sur un écran de 320 px, le libellé complet débordait et le
+    // bouton le coupait en plein mot. La rangée est un conteneur de requête,
+    // le libellé suit donc la largeur réelle du panneau, pas celle de l'écran.
     return (
-      <button
-        type="button"
+      <Button
+        variant="ai"
+        size="sm"
         onClick={onExplain}
-        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-accent2/40 bg-accent2/10 px-3.5 py-2 text-xs font-bold text-accent2 transition-colors hover:border-accent2/50 hover:bg-accent2/20"
+        icon={<AiSpark className="h-4 w-4 shrink-0" />}
+        className="max-w-full"
       >
-        <AiSpark className="h-4 w-4" />
-        Expliquer cette phrase avec l&apos;IA
-      </button>
+        <span className="@min-[16.5rem]:hidden">Expliquer avec l&apos;IA</span>
+        <span className="hidden @min-[16.5rem]:inline">Expliquer cette phrase avec l&apos;IA</span>
+      </Button>
     );
   }
   if (state.status === "loading") {
     return (
-      <div className="mt-3 rounded-xl border border-accent2/30 bg-accent2/5 px-4 py-3">
+      <div className="w-full rounded-xl border border-accent2/30 bg-accent2/5 px-4 py-3">
         <LoadingDots label="Le professeur analyse la phrase…" />
       </div>
     );
   }
   if (state.status === "quota") {
     return (
-      <div className="mt-3">
+      <div className="w-full">
         <PaywallNotice quota={state.quota} message={state.message} what="les explications de l'IA" />
       </div>
     );
   }
   if (state.status === "error") {
+    // Pas `Button` : le message d'erreur est de longueur libre et doit
+    // pouvoir passer à la ligne, ce que `.btn` interdit.
     return (
       <button
         type="button"
         onClick={onExplain}
-        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-danger/40 bg-danger/10 px-3.5 py-2 text-xs font-semibold text-danger"
+        className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-1.5 text-left text-[13px] font-semibold text-danger transition-colors hover:bg-danger/15"
       >
         {state.message} — réessayer
       </button>
@@ -738,7 +740,7 @@ function AiHelp({ state, onExplain }: { state: SentenceHelp | undefined; onExpla
   // La phrase a été expliquée, mais pas ce mot : le modèle l'a omis, ou son
   // explication n'a pas passé les contrôles.
   return (
-    <p className="mt-2 text-xs leading-relaxed text-muted">
+    <p className="w-full text-xs leading-relaxed text-muted">
       L&apos;IA n&apos;a pas su justifier ce mot-là ; l&apos;indication ci-dessus reste valable.
     </p>
   );
