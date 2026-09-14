@@ -131,6 +131,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
                 verdict={feedback ? (feedback.correct ? "correct" : "wrong") : null}
                 onSubmit={(value) => session.answer(value, true)}
                 onReveal={session.reveal}
+                numeric={session.exercise?.options.every((option) => /^\d+$/.test(option)) ?? false}
               />
             ) : (
               <ChoiceOptions
@@ -239,12 +240,15 @@ function TypedAnswer({
   verdict,
   onSubmit,
   onReveal,
+  numeric = false,
 }: {
   done: boolean;
   checking: boolean;
   verdict: "correct" | "wrong" | null;
   onSubmit: (value: string) => void;
   onReveal: () => void;
+  /** La réponse est un nombre en chiffres (nombres à l'oreille), pas du russe. */
+  numeric?: boolean;
 }) {
   const [value, setValue] = useState("");
   const ready = value.trim().length > 0 && !checking && !done;
@@ -259,9 +263,10 @@ function TypedAnswer({
             if (e.key === "Enter" && ready) onSubmit(value);
           }}
           readOnly={done || checking}
-          placeholder="Écris la réponse en russe…"
-          aria-label="Ta réponse, en russe"
-          lang="ru"
+          placeholder={numeric ? "Écris le nombre en chiffres…" : "Écris la réponse en russe…"}
+          aria-label={numeric ? "Ta réponse, en chiffres" : "Ta réponse, en russe"}
+          lang={numeric ? undefined : "ru"}
+          inputMode={numeric ? "numeric" : undefined}
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
