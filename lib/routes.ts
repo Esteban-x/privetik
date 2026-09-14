@@ -44,6 +44,7 @@ export const APP_SEGMENTS = [
   "reset-password",
   "seance",
   "signup",
+  "traduction",
   "vocabulary",
 ] as const;
 

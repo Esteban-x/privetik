@@ -276,6 +276,41 @@ for (const bank of MODULES) {
   expect("plafond d'une séance d'erreurs", E.pendingErrors(Array.from({ length: 50 }, (_, i) => aspect(`past:c${i}:p`, false, i))).length, E.MAX_ERRORS);
 }
 
+// ─── 3 quater. Traduire des phrases ────────────────────────────────
+//
+// Chaque phrase vient du cours ou de la bibliothèque. Une phrase au russe
+// mêlé de latin, un identifiant en double ou une référence qui ne se
+// reconnaîtrait pas elle-même noteraient faux la bonne réponse.
+{
+  const TR = await jiti.import("../lib/translation/items.ts");
+  const J = await jiti.import("../lib/translation/judge.ts");
+  const items = TR.translationItems();
+  const ids = new Set();
+  for (const item of items) {
+    const where = `traduction ${item.id}`;
+    require_(!ids.has(item.id), `${where} : identifiant en double`);
+    ids.add(item.id);
+    require_(/[а-яё]/i.test(item.ru) && !/[a-z]/i.test(item.ru), `${where} : russe invalide (${item.ru})`);
+    require_(item.fr.trim().length > 0 && !/[а-яё]/i.test(item.fr), `${where} : français invalide (${item.fr})`);
+    require_(TR.TRANSLATION_LEVELS.includes(item.level), `${where} : niveau inconnu (${item.level})`);
+    require_(TR.findTranslationItem(item.id) === item, `${where} : introuvable par son identifiant`);
+    require_(J.matchesTranslation(item.ru, item.ru), `${where} : la référence ne se reconnaît pas elle-même`);
+    require_(routeExists(item.source.href.replace(/\/[^/]+$/, item.source.href.startsWith("/cours/") ? "/[slug]" : "/[textId]")), `${where} : source sans page (${item.source.href})`);
+  }
+  for (const level of TR.TRANSLATION_LEVELS) {
+    require_(TR.itemsForLevel(level).length >= 25, `traduction ${level} : seulement ${TR.itemsForLevel(level).length} phrases`);
+  }
+  expect("traduction : accent, ё, casse et ponctuation ignorés", J.matchesTranslation("я иду в школу", "Я иду́ в шко́лу."), true);
+  expect("traduction : tiret de la phrase nominale ignoré", J.matchesTranslation("Мой брат врач", "Мой брат — врач."), true);
+  expect("traduction : trait d'union d'un mot gardé", J.matchesTranslation("кто то пришёл", "Кто-то пришёл."), false);
+  expect("traduction : autre cas refusé à la lettre", J.matchesTranslation("Я иду в школе.", "Я иду́ в шко́лу."), false);
+  expect("traduction : réponse vide", J.matchesTranslation("   ", "Да."), false);
+  expect("traduction : graine stable", TR.seededShuffle([1, 2, 3, 4, 5, 6], "x").join(), TR.seededShuffle([1, 2, 3, 4, 5, 6], "x").join());
+  expect("traduction : A0 rejoint A1", TR.translationLevelFor("A0"), "A1");
+  expect("traduction : C1 rejoint B2", TR.translationLevelFor("C1"), "B2");
+  console.log(`Traduction : ${items.length} phrases (${TR.TRANSLATION_LEVELS.map((l) => `${l} ${TR.itemsForLevel(l).length}`).join(", ")})`);
+}
+
 // ─── 4. Témoins ──────────────────────────────────────────────────
 expect("heure 3:00", numbers.tellTime(3, 0), "три часа́");
 expect("heure 1:00", numbers.tellTime(1, 0), "час");

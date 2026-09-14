@@ -1,3 +1,4 @@
+import Link from "next/link";
 import SectionLabel from "@/components/ui/SectionLabel";
 import ExerciseExplorer, { type ModuleCard } from "@/components/exercises/ExerciseExplorer";
 import { EXERCISE_MODULES, FAMILY_ORDER, moduleLevels, TOTAL_SKILLS } from "@/lib/exercises/catalog";
@@ -83,6 +84,22 @@ export default async function ExercisesPage() {
         <Stat value="A0 → C1" label="du déchiffrage au participe" />
         {worked > 0 && <Stat value={`${worked}/${EXERCISE_MODULES.length}`} label="déjà travaillés" />}
       </div>
+
+      {/* Hors catalogue : ni banque ni compétences, des phrases entières
+          corrigées par le serveur — voir lib/translation/items.ts. */}
+      <Link
+        href="/traduction"
+        className="mb-8 flex flex-wrap items-center justify-between gap-4 rounded-[20px] surface-interactive p-5 hover:-translate-y-0.5"
+      >
+        <div className="min-w-0">
+          <p className="font-display text-base font-bold">Traduire des phrases entières</p>
+          <p className="mt-0.5 max-w-2xl font-display text-sm leading-snug text-muted">
+            Du français vers le russe : ce que les modules font travailler séparément, réuni dans une phrase —
+            comparée à la référence, puis relue par l&apos;IA quand tu la dis autrement.
+          </p>
+        </div>
+        <span className="shrink-0 font-display text-sm font-semibold text-accent-ink">Traduire →</span>
+      </Link>
 
       <ExerciseExplorer modules={modules} families={FAMILY_ORDER} />
     </div>
