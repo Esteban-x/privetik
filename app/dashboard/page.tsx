@@ -7,8 +7,16 @@ import { Profile } from "@/lib/supabase/types";
 import SectionLabel from "@/components/ui/SectionLabel";
 import StreakDots from "@/components/dashboard/StreakDots";
 import { countFocus } from "@/lib/vocabulary/focus";
+import { newWordsAllowance } from "@/lib/vocabulary/new-words";
 import { loadLevelEstimate } from "@/lib/progress/level-estimate";
 import { CEFR_LEVELS } from "@/lib/supabase/types";
+import { ERROR_KINDS, ERROR_WINDOW_DAYS, isDueError, pendingErrors } from "@/lib/practice/errors";
+
+/**
+ * En dessous, la précision récente d'un cas dit trop peu : trois réponses
+ * justes ne font pas 100 % de maîtrise. On garde alors le cumul.
+ */
+const RECENT_CASE_MIN = 8;
 
 /**
  * Le titre de l'onglet.
@@ -57,6 +65,8 @@ export default async function DashboardPage() {
     { data: caseProg },
     { data: vocabWords },
     { data: srsRows },
+    newAllowance,
+    { data: recentAttempts },
   ] = await Promise.all([
     supabase
       .from("activity_log")
@@ -69,7 +79,21 @@ export default async function DashboardPage() {
       .from("srs_cards")
       .select("card_id, repetitions, ease_factor, due_at")
       .eq("user_id", user.id),
+    newWordsAllowance(supabase, user.id, now),
+    // Un mois de réponses corrigées : les erreurs en attente, et la précision
+    // RÉCENTE par cas. Même lecture que /api/errors.
+    supabase
+      .from("activity_log")
+      .select("kind, correct, created_at, meta")
+      .eq("user_id", user.id)
+      .in("kind", Object.keys(ERROR_KINDS))
+      .gte("created_at", new Date(now - ERROR_WINDOW_DAYS * 864e5).toISOString())
+      .order("created_at", { ascending: true })
+      .limit(3000),
   ]);
+
+  const errors = pendingErrors(recentAttempts ?? []);
+  const dueErrors = errors.filter((e) => isDueError(e, now)).length;
 
   // Niveau de PRATIQUE, à côté du niveau TESTÉ : l'un mesure ce que la
   // progression démontre au fil des centaines de réponses produites, l'autre
@@ -84,14 +108,39 @@ export default async function DashboardPage() {
   const correctAttempts = acts.filter((a) => a.correct === true).length;
   const accuracy = totalAttempts ? Math.round((correctAttempts / totalAttempts) * 100) : 0;
 
-  // Précision par cas.
-  const caseAccuracy: Record<string, number> = {};
+  // Précision par cas — RÉCENTE quand le mois en dit assez.
+  //
+  // Le cumul ne bougeait plus : 90 % obtenus il y a six mois restaient 90 %
+  // après six mois sans ouvrir le génitif. Or c'est l'oubli qu'on veut voir.
+  // Sur les trente derniers jours, une barre baisse quand on décroche, et
+  // remonte dès qu'on reprend. Sans assez de réponses récentes, le cumul
+  // reste affiché, marqué comme tel.
+  const recentByCase = new Map<string, { attempts: number; correct: number }>();
+  for (const a of recentAttempts ?? []) {
+    const caseId = a.kind === "case" ? (a.meta as { caseId?: unknown } | null)?.caseId : null;
+    if (typeof caseId !== "string" || a.correct === null) continue;
+    const stat = recentByCase.get(caseId) ?? { attempts: 0, correct: 0 };
+    stat.attempts += 1;
+    if (a.correct) stat.correct += 1;
+    recentByCase.set(caseId, stat);
+  }
+  const caseAccuracy: Record<string, { pct: number; recent: boolean; practiced: boolean }> = {};
   for (const c of CASES) {
+    const recent = recentByCase.get(c.id);
+    if (recent && recent.attempts >= RECENT_CASE_MIN) {
+      caseAccuracy[c.id] = {
+        pct: Math.round((recent.correct / recent.attempts) * 100),
+        recent: true,
+        practiced: true,
+      };
+      continue;
+    }
     const rows = (caseProg ?? []).filter((r) => r.case_id === c.id);
     const att = rows.reduce((s, r) => s + (r.attempts ?? 0), 0);
     const cor = rows.reduce((s, r) => s + (r.correct ?? 0), 0);
-    caseAccuracy[c.id] = att ? Math.round((cor / att) * 100) : 0;
+    caseAccuracy[c.id] = { pct: att ? Math.round((cor / att) * 100) : 0, recent: false, practiced: att > 0 };
   }
+  const staleCases = CASES.filter((c) => caseAccuracy[c.id].practiced && !caseAccuracy[c.id].recent);
 
   // Vocabulaire : ce que l'apprenant a lui-même rangé, pas ce que le SM-2
   // aurait déduit de ses réussites. countFocus est la même fonction que celle
@@ -112,7 +161,8 @@ export default async function DashboardPage() {
           : null,
       };
     }),
-    now
+    now,
+    newAllowance
   );
   const vocabTotal = vocab.total;
   const vocabKnown = vocab.known;
@@ -229,6 +279,29 @@ export default async function DashboardPage() {
         </div>
       )}
 
+      {/* Mes erreurs : ce qui a été raté et pas encore réussi depuis */}
+      {errors.length > 0 && (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] surface p-6">
+          <div className="min-w-0">
+            <p className="font-display text-sm font-semibold text-muted">Mes erreurs</p>
+            <p className="mt-1 font-display text-lg font-bold">
+              {errors.length} exercice{errors.length > 1 ? "s" : ""} à refaire
+            </p>
+            <p className="mt-0.5 font-display text-xs leading-relaxed text-muted">
+              {dueErrors > 0
+                ? `Dont ${dueErrors} raté${dueErrors > 1 ? "s" : ""} avant aujourd'hui : le bon moment pour ${dueErrors > 1 ? "les" : "le"} retrouver.`
+                : "Ratés aujourd'hui : ils seront encore mieux fixés si tu les refais demain."}
+            </p>
+          </div>
+          <Link
+            href="/erreurs"
+            className="btn btn-primary btn-sheen shrink-0 rounded-[10px] px-5 py-2.5 font-display text-sm"
+          >
+            Refaire
+          </Link>
+        </div>
+      )}
+
       {/* Série */}
       <div className="mt-6 rounded-[20px] surface p-6">
         <p className="font-display text-sm font-semibold text-muted">Cette semaine</p>
@@ -239,12 +312,15 @@ export default async function DashboardPage() {
 
       {/* Maîtrise par cas */}
       <div className="mt-6 rounded-[20px] surface p-6">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-1 flex items-center justify-between gap-3">
           <p className="font-display text-sm font-semibold text-muted">Maîtrise des cas</p>
-          <Link href="/cases" className="font-display text-xs font-semibold text-accent-ink hover:underline">
-            S&apos;entraîner →
+          <Link href="/cases/melange" className="shrink-0 font-display text-xs font-semibold text-accent-ink hover:underline">
+            Cas mélangés →
           </Link>
         </div>
+        <p className="mb-4 font-display text-xs leading-relaxed text-muted">
+          Sur tes {ERROR_WINDOW_DAYS} derniers jours : une précision ancienne ne dit plus ce que tu sais aujourd&apos;hui.
+        </p>
         <div className="space-y-3">
           {CASES.map((c) => (
             <div key={c.id} className="flex items-center gap-3">
@@ -253,16 +329,22 @@ export default async function DashboardPage() {
               </span>
               <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-border">
                 <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${caseAccuracy[c.id]}%`, background: c.color }}
+                  className={`h-full rounded-full transition-all ${caseAccuracy[c.id].recent ? "" : "opacity-40"}`}
+                  style={{ width: `${caseAccuracy[c.id].pct}%`, background: c.color }}
                 />
               </div>
               <span className="w-10 text-right font-display text-xs text-muted">
-                {caseAccuracy[c.id]}%
+                {caseAccuracy[c.id].pct}%
               </span>
             </div>
           ))}
         </div>
+        {staleCases.length > 0 && (
+          <p className="mt-4 font-display text-xs leading-relaxed text-muted">
+            En pâle, faute de pratique récente, la précision de toujours :{" "}
+            {staleCases.map((c) => c.nameFr.toLowerCase()).join(", ")}. À rafraîchir.
+          </p>
+        )}
       </div>
 
       {/* Progression du vocabulaire */}

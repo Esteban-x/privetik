@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { SeriesMiss } from "@/lib/practice/use-practice-session";
 
 /**
@@ -22,6 +23,7 @@ export default function SeriesRecap({
   onContinue,
   onRedo,
   footer,
+  showErrorsLink = true,
 }: {
   correct: number;
   total: number;
@@ -32,7 +34,10 @@ export default function SeriesRecap({
   onContinue: () => void;
   onRedo: () => void;
   footer?: React.ReactNode;
+  /** Faux sur « Mes erreurs » elle-même. */
+  showErrorsLink?: boolean;
 }) {
+  const unrecovered = misses.filter((miss) => !miss.recovered).length;
   return (
     <div className="animate-fade-in" role="status">
       <p className="font-display text-xs font-semibold uppercase tracking-wide text-muted">
@@ -96,6 +101,19 @@ export default function SeriesRecap({
           </button>
         )}
       </div>
+      {/* LE LENDEMAIN, PAS SEULEMENT TROIS EXERCICES PLUS TARD. Retrouver
+          une réponse vue il y a une minute n'est pas s'en souvenir : ce
+          qui n'a pas été réussi depuis revient dans « Mes erreurs ». */}
+      {showErrorsLink && unrecovered > 0 && (
+        <p className="mt-4 font-display text-xs leading-relaxed text-muted">
+          {unrecovered === 1 ? "Celle qui n'est pas rattrapée t'attend" : "Celles qui ne sont pas rattrapées t'attendent"}{" "}
+          dans{" "}
+          <Link href="/erreurs" className="font-semibold text-accent-ink underline-offset-2 hover:underline">
+            Mes erreurs
+          </Link>
+          , pour y revenir demain.
+        </p>
+      )}
       {footer}
     </div>
   );

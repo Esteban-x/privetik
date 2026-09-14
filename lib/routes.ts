@@ -29,6 +29,7 @@ export const APP_SEGMENTS = [
   "conjugation",
   "cours",
   "dashboard",
+  "erreurs",
   "exercices",
   "forgot-password",
   "guides",

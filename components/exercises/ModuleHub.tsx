@@ -17,6 +17,8 @@ import { BookIcon } from "@/components/ui/icons";
 export interface SkillProgress {
   attempts: number;
   correct: number;
+  /** Travaillée, puis délaissée depuis trois semaines (voir lib/exercises/progress.ts). */
+  stale?: boolean;
 }
 
 export default function ModuleHub({
@@ -86,10 +88,15 @@ export default function ModuleHub({
                   {skill.summary}
                 </span>
                 <span className="mt-4 flex items-center justify-between">
-                  <span className="font-display text-xs font-semibold text-muted">
+                  <span className="flex flex-wrap items-center gap-1.5 font-display text-xs font-semibold text-muted">
                     {accuracy === null
                       ? "Jamais travaillé"
                       : `${accuracy}% · ${stat!.attempts} réponse${stat!.attempts > 1 ? "s" : ""}`}
+                    {stat?.stale && (
+                      <span className="rounded-full border border-accent2/40 bg-accent2/10 px-2 py-0.5 text-[10px] font-bold text-accent2">
+                        à rafraîchir
+                      </span>
+                    )}
                   </span>
                   {accuracy !== null && (
                     <span className="h-1.5 w-20 overflow-hidden rounded-full bg-border">

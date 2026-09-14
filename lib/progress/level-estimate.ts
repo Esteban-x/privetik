@@ -10,6 +10,7 @@ import { PARTICIPLE_SKILLS } from "@/lib/participles/exercises";
 import { CONJUGATION_SKILLS } from "@/lib/conjugation/exercises";
 import { ALPHABET_SKILLS } from "@/lib/alphabet/exercises";
 import { NUMBER_SKILLS } from "@/lib/numbers/exercises";
+import { ADJECTIVE_SKILLS } from "@/lib/adjectives/exercises";
 
 /**
  * Niveau de PRATIQUE : ce que la progression réelle démontre, par opposition
@@ -37,6 +38,8 @@ export interface TriggerProgressRow {
   trigger_id: string;
   attempts: number;
   correct: number;
+  /** Dernière pratique. Absente, la ligne est tenue pour récente. */
+  last_seen?: string | null;
 }
 
 export interface CaseProgressRow {
@@ -49,6 +52,8 @@ export interface SkillProgressRow {
   skill_id: string;
   attempts: number;
   correct: number;
+  /** Dernière pratique. Absente, la ligne est tenue pour récente. */
+  last_seen?: string | null;
 }
 
 export type CaseState = "untouched" | "started" | "solid";
@@ -96,8 +101,27 @@ export interface LevelEstimate {
   meaningful: boolean;
 }
 
-function isMastered(row: { attempts: number; correct: number } | undefined): boolean {
+/**
+ * UNE MAÎTRISE S'USE.
+ *
+ * Réussir un déclencheur à 90 % en janvier ne démontre rien en avril s'il n'a
+ * pas été pratiqué entre-temps : c'est justement ce qui s'oublie sans qu'on
+ * le remarque. La précision cumulée, elle, ne bougeait jamais, et le niveau
+ * de pratique restait figé au plus haut. Au-delà de `STALE_AFTER_DAYS` sans
+ * pratique, une maîtrise ne compte plus — la reprendre suffit à la rendre.
+ *
+ * Deux mois, et non trois semaines comme la pastille « à rafraîchir » des
+ * modules (lib/exercises/progress.ts) : la pastille invite à revenir, le
+ * niveau, lui, ne doit pas chuter pour des vacances.
+ */
+export const STALE_AFTER_DAYS = 60;
+
+function isMastered(
+  row: { attempts: number; correct: number; last_seen?: string | null } | undefined,
+  now: number
+): boolean {
   if (!row || row.attempts < MASTERY_MIN_ATTEMPTS_EACH) return false;
+  if (row.last_seen && now - Date.parse(row.last_seen) > STALE_AFTER_DAYS * 864e5) return false;
   return row.correct / row.attempts >= MASTERY_ACCURACY;
 }
 
@@ -115,6 +139,7 @@ const MIN_ATTEMPTS_FOR_ESTIMATE = 30;
 export type ModuleId =
   | "alphabet"
   | "conjugation"
+  | "adjectives"
   | "motion"
   | "aspect"
   | "numbers"
@@ -159,6 +184,17 @@ const MODULE_SPECS: {
     unlocks: "B1",
     skills: CONJUGATION_SKILLS,
   },
+  // L'ACCORD DE L'ADJECTIF MANQUAIT. Le module existe, sa progression est
+  // enregistrée, mais l'estimation ne la lisait pas : un apprenant qui ne
+  // l'avait jamais ouvert pouvait être estimé B2, et un autre qui y excellait
+  // n'en tirait rien. Ses compétences vont de A1 à B1 — comme la conjugaison.
+  {
+    id: "adjectives",
+    label: "Accord de l'adjectif",
+    href: "/adjectives",
+    unlocks: "B1",
+    skills: ADJECTIVE_SKILLS,
+  },
   { id: "motion", label: "Verbes de mouvement", href: "/motion", unlocks: "B1", skills: MOTION_SKILLS },
   { id: "aspect", label: "Aspect verbal", href: "/aspect", unlocks: "B1", skills: ASPECT_SKILLS },
   {
@@ -182,10 +218,11 @@ const MODULE_SOLID_RATIO = 0.6;
 
 function moduleMastery(
   spec: (typeof MODULE_SPECS)[number],
-  rows: SkillProgressRow[]
+  rows: SkillProgressRow[],
+  now: number
 ): ModuleMastery {
   const bySkill = new Map(rows.map((r) => [r.skill_id, r]));
-  const solidSkills = spec.skills.filter((s) => isMastered(bySkill.get(s.id))).length;
+  const solidSkills = spec.skills.filter((s) => isMastered(bySkill.get(s.id), now)).length;
   const attempts = rows.reduce((sum, r) => sum + r.attempts, 0);
   const ratio = spec.skills.length ? solidSkills / spec.skills.length : 0;
   return {
@@ -212,7 +249,8 @@ export function computeLevelEstimate(
   triggerRows: TriggerProgressRow[],
   caseRows: CaseProgressRow[],
   moduleRows: Record<ModuleId, SkillProgressRow[]>,
-  vocabKnown: number
+  vocabKnown: number,
+  now: number = Date.now()
 ): LevelEstimate {
   const byTrigger = new Map(triggerRows.map((r) => [r.trigger_id, r]));
 
@@ -222,7 +260,7 @@ export function computeLevelEstimate(
     return {
       tier,
       total: all.length,
-      mastered: all.filter((t) => isMastered(byTrigger.get(t.id))).length,
+      mastered: all.filter((t) => isMastered(byTrigger.get(t.id), now)).length,
     };
   });
   const ratio = (tier: TriggerTier) => {
@@ -241,7 +279,7 @@ export function computeLevelEstimate(
   const cases: CaseMastery[] = CASES.map((c) => {
     const totals = caseTotals.get(c.id) ?? { attempts: 0, correct: 0 };
     const caseTriggers = TRIGGERS.filter((t) => t.caseId === c.id);
-    const masteredTriggers = caseTriggers.filter((t) => isMastered(byTrigger.get(t.id))).length;
+    const masteredTriggers = caseTriggers.filter((t) => isMastered(byTrigger.get(t.id), now)).length;
     const accuracy = totals.attempts > 0 ? totals.correct / totals.attempts : null;
     const solid =
       masteredTriggers >= Math.min(3, caseTriggers.length) && accuracy !== null && accuracy >= 0.75;
@@ -255,7 +293,7 @@ export function computeLevelEstimate(
     };
   });
 
-  const modules = MODULE_SPECS.map((spec) => moduleMastery(spec, moduleRows[spec.id] ?? []));
+  const modules = MODULE_SPECS.map((spec) => moduleMastery(spec, moduleRows[spec.id] ?? [], now));
 
   // Profondeur : ce que la maîtrise des cas justifierait à elle seule.
   const matched = THRESHOLDS.find(
@@ -316,25 +354,36 @@ export async function loadLevelEstimate(
     { data: motionRows },
     { data: aspectRows },
     { data: participleRows },
+    { data: adjectiveRows },
     { data: sharedRows },
     { count: vocabKnown },
   ] = await Promise.all([
     supabase
       .from("case_trigger_progress")
-      .select("trigger_id, attempts, correct")
+      .select("trigger_id, attempts, correct, last_seen")
       .eq("user_id", userId),
     supabase.from("case_progress").select("case_id, attempts, correct").eq("user_id", userId),
-    supabase.from("motion_progress").select("skill_id, attempts, correct").eq("user_id", userId),
-    supabase.from("aspect_progress").select("skill_id, attempts, correct").eq("user_id", userId),
+    supabase
+      .from("motion_progress")
+      .select("skill_id, attempts, correct, last_seen")
+      .eq("user_id", userId),
+    supabase
+      .from("aspect_progress")
+      .select("skill_id, attempts, correct, last_seen")
+      .eq("user_id", userId),
     supabase
       .from("participle_progress")
-      .select("skill_id, attempts, correct")
+      .select("skill_id, attempts, correct, last_seen")
+      .eq("user_id", userId),
+    supabase
+      .from("adjective_progress")
+      .select("skill_id, attempts, correct, last_seen")
       .eq("user_id", userId),
     // Les modules récents partagent une table : une seule lecture pour les
     // trois, filtrée ensuite par `module_id`.
     supabase
       .from("exercise_progress")
-      .select("module_id, skill_id, attempts, correct")
+      .select("module_id, skill_id, attempts, correct, last_seen")
       .eq("user_id", userId),
     supabase
       .from("srs_cards")
@@ -346,7 +395,12 @@ export async function loadLevelEstimate(
   const shared = (module: string): SkillProgressRow[] =>
     (sharedRows ?? [])
       .filter((row) => row.module_id === module)
-      .map((row) => ({ skill_id: row.skill_id, attempts: row.attempts, correct: row.correct }));
+      .map((row) => ({
+        skill_id: row.skill_id,
+        attempts: row.attempts,
+        correct: row.correct,
+        last_seen: row.last_seen,
+      }));
 
   return computeLevelEstimate(
     triggerRows ?? [],
@@ -354,6 +408,7 @@ export async function loadLevelEstimate(
     {
       alphabet: shared("alphabet"),
       conjugation: shared("conjugation"),
+      adjectives: adjectiveRows ?? [],
       motion: motionRows ?? [],
       aspect: aspectRows ?? [],
       numbers: shared("numbers"),

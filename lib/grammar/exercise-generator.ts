@@ -7,6 +7,7 @@ import { RUSSIAN_NAMES } from "./names-data";
 import { declineNoun } from "./decline";
 import {
   CaseTrigger,
+  getTrigger,
   PROPER_NOUN_TRIGGER_ID,
   resolveNumber,
   templatesFor,
@@ -483,6 +484,107 @@ export function generateNumeralExercise(pool: Noun[] = DECLINABLE_NOUNS): CaseEx
     numeral,
     countForm,
   };
+}
+
+/** Ce que le journal garde d'un exercice de cas — voir app/api/cases/attempt. */
+export interface CaseExerciseRef {
+  caseId: string;
+  nounId: string | null;
+  plural: boolean;
+  adjectiveId: string | null;
+  triggerId: string | null;
+  sentence: string | null;
+  exerciseKind: string | null;
+  numeral: number | null;
+}
+
+/**
+ * Refait un exercice de cas à partir de ce que le journal en a gardé — pour
+ * « Mes erreurs ».
+ *
+ * LE MÊME EXERCICE, PAS UN EXERCICE VOISIN. Même nom, même nombre, même
+ * adjectif, même phrase. Chaque pièce est revalidée contre la banque : une
+ * phrase qui n'appartient plus au déclencheur, un adjectif que l'index ne
+ * lie plus au nom, et l'exercice retombe sur ce qui reste sûr.
+ *
+ * UN QCM REVIENT EN SAISIE. Refaire une erreur, c'est retrouver la forme soi-
+ * même : les quatre boutons d'origine la montreraient.
+ *
+ * Sans nom (réponse journalisée avant qu'on le garde), le déclencheur seul
+ * permet encore de reposer la question, avec un autre mot. Sans l'un ni
+ * l'autre : `null`.
+ */
+export function rebuildCaseExercise(ref: CaseExerciseRef): CaseExercise | null {
+  const info = CASES.find((c) => c.id === ref.caseId);
+  if (!info) return null;
+  const targetCase = info.id;
+  const found = ref.triggerId ? getTrigger(ref.triggerId) : undefined;
+  const trigger = found && found.caseId === targetCase ? found : undefined;
+  const noun = ref.nounId ? resolveExerciseNoun(ref.nounId) : undefined;
+
+  if (!noun) {
+    return trigger ? generateSentenceExercise(targetCase, trigger, DECLINABLE_NOUNS, ref.plural) : null;
+  }
+
+  if (ref.exerciseKind === "numeral" && ref.numeral !== null) {
+    const countForm = countFormFor(ref.numeral);
+    const expectedCase: CaseId = countForm === "nom-sg" ? "nominative" : "genitive";
+    const plural = countForm === "gen-pl";
+    if (expectedCase !== targetCase || plural !== ref.plural) return null;
+    const result = declineNoun(noun, targetCase, plural);
+    return {
+      kind: "numeral",
+      noun,
+      targetCase,
+      plural,
+      correctForm: result.form,
+      accentedForm: result.accented,
+      variantForm: result.variant,
+      ruleApplied: result.ruleApplied,
+      numeral: ref.numeral,
+      countForm,
+    };
+  }
+
+  const adjective =
+    ref.adjectiveId && (NOUN_ADJECTIVES[noun.id] ?? []).includes(ref.adjectiveId)
+      ? getAdjective(ref.adjectiveId)
+      : undefined;
+  const result = declineNoun(noun, targetCase, ref.plural);
+  const forms = adjective
+    ? asGroup(adjective, noun, targetCase, ref.plural, result)
+    : {
+        correctForm: result.form,
+        accentedForm: result.accented,
+        variantForm: result.variant,
+        ruleApplied: result.ruleApplied,
+      };
+
+  const template =
+    trigger && ref.sentence ? templatesFor(trigger).find((t) => t.ru === ref.sentence) : undefined;
+  if (trigger && template) {
+    return {
+      kind: "sentence-fixed",
+      noun,
+      adjective,
+      targetCase,
+      plural: ref.plural,
+      ...forms,
+      trigger,
+      sentenceTemplate: template.ru,
+      sentenceFr: fillFrenchBlank(
+        template.fr,
+        frenchNounPhrase(noun.translation, noun.frenchGender, trigger.article, ref.plural, adjective)
+      ),
+    };
+  }
+
+  // Le nominatif singulier isolé n'existe pas : rien à décliner (voir
+  // generateIsolatedExercise). Sans phrase, l'erreur revient sur son déclencheur.
+  if (targetCase === "nominative" && !ref.plural) {
+    return trigger ? generateSentenceExercise(targetCase, trigger, DECLINABLE_NOUNS, false) : null;
+  }
+  return { kind: "isolated", noun, adjective, targetCase, plural: ref.plural, ...forms };
 }
 
 // Résolution d'un id d'exercice vers son Noun : banque curée + banque de

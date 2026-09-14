@@ -36,6 +36,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
   skeleton,
   empty,
   recapFooter,
+  showErrorsLink = true,
 }: {
   title: string;
   color: string;
@@ -45,7 +46,8 @@ export default function PracticeCard<T extends ChoiceExercise>({
   renderQuestion: (exercise: T) => React.ReactNode;
   /** La phrase russe à faire écouter une fois la réponse donnée. */
   spoken?: (exercise: T) => string | null;
-  answerMode?: AnswerMode;
+  /** Un mode pour toute la carte, ou exercice par exercice (« Mes erreurs » mêle les deux). */
+  answerMode?: AnswerMode | ((exercise: T) => AnswerMode);
   toolbar?: React.ReactNode;
   /** Options sur une colonne, alignées à gauche : des phrases entières. */
   singleColumn?: boolean;
@@ -54,6 +56,8 @@ export default function PracticeCard<T extends ChoiceExercise>({
   /** Ce qu'on montre quand la source n'a rien à servir. */
   empty?: React.ReactNode;
   recapFooter?: React.ReactNode;
+  /** Faux sur « Mes erreurs », qui ne renvoie pas vers elle-même. */
+  showErrorsLink?: boolean;
 }) {
   if (session.blocked) {
     return (
@@ -62,6 +66,8 @@ export default function PracticeCard<T extends ChoiceExercise>({
   }
 
   const { exercise, feedback } = session;
+  const mode: AnswerMode =
+    typeof answerMode === "function" ? (exercise ? answerMode(exercise) : "choice") : answerMode;
   const progress = Math.min(session.answered, session.seriesLength);
   const endOfSeries = !session.isRetry && session.answered >= session.seriesLength;
 
@@ -100,6 +106,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
             onContinue={session.continueSeries}
             onRedo={session.redoMisses}
             footer={recapFooter}
+            showErrorsLink={showErrorsLink}
           />
         ) : !exercise ? (
           session.exhausted ? (
@@ -117,7 +124,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
 
             {renderQuestion(exercise)}
 
-            {answerMode === "typing" ? (
+            {mode === "typing" ? (
               <TypedAnswer
                 done={Boolean(feedback)}
                 checking={session.checking}
@@ -143,7 +150,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
                 feedback={feedback}
                 picked={session.picked}
                 answer={exercise.options[exercise.correctIndex]}
-                typed={answerMode === "typing"}
+                typed={mode === "typing"}
                 spoken={spoken?.(exercise) ?? null}
                 onNext={session.next}
                 nextLabel={endOfSeries ? "Voir le bilan →" : "Suivant →"}

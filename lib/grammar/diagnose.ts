@@ -86,24 +86,33 @@ export function cellsOf(noun: Noun, given: string): Cell[] {
   return cells;
 }
 
+/** Ce que sont les cases trouvées, face au cas demandé. `subject` : « le mot » ou « le groupe ». */
+function describeCells(
+  shownGiven: string,
+  cells: { case: CaseId; plural: boolean }[],
+  target: CaseId,
+  plural: boolean,
+  subject: string
+): string {
+  if (cells.some((cell) => cell.case === target)) {
+    return `« ${shownGiven} » est bien ${at(target)}, mais au ${numberName(!plural)} : ici, il faut le ${numberName(plural)}.`;
+  }
+  if (!plural && cells.some((cell) => cell.case === "nominative" && !cell.plural)) {
+    return `« ${shownGiven} » est la forme du dictionnaire, le nominatif : ici, ${subject} se met ${at(target)}.`;
+  }
+  const sameNumber = cells.filter((cell) => cell.plural === plural);
+  const shown = sameNumber.length > 0 ? sameNumber : cells;
+  const numbers = new Set(shown.map((cell) => cell.plural));
+  const names = orList(shown.map((cell) => NAME[cell.case]));
+  const number = numbers.size === 1 ? ` ${numberName(shown[0].plural)}` : "";
+  return `« ${shownGiven} » est ${the(names)}${number} : ici, ${subject} se met ${at(target)} ${numberName(plural)}.`;
+}
+
 function nounDiagnosis(noun: Noun, given: string, target: CaseId, plural: boolean): string | null {
   const shownGiven = given.trim();
   const cells = cellsOf(noun, given);
 
-  if (cells.length > 0) {
-    if (cells.some((cell) => cell.case === target)) {
-      return `« ${shownGiven} » est bien ${at(target)}, mais au ${numberName(!plural)} : ici, il faut le ${numberName(plural)}.`;
-    }
-    if (!plural && cells.some((cell) => cell.case === "nominative" && !cell.plural)) {
-      return `« ${shownGiven} » est la forme du dictionnaire, le nominatif : ici, le mot se met ${at(target)}.`;
-    }
-    const sameNumber = cells.filter((cell) => cell.plural === plural);
-    const shown = sameNumber.length > 0 ? sameNumber : cells;
-    const numbers = new Set(shown.map((cell) => cell.plural));
-    const names = orList(shown.map((cell) => NAME[cell.case]));
-    const number = numbers.size === 1 ? ` ${numberName(shown[0].plural)}` : "";
-    return `« ${shownGiven} » est ${the(names)}${number} : ici, le mot se met ${at(target)} ${numberName(plural)}.`;
-  }
+  if (cells.length > 0) return describeCells(shownGiven, cells, target, plural, "le mot");
 
   if (normalizeAnswer(ruleForm(noun, target, plural)) === normalizeAnswer(given)) {
     return `« ${shownGiven} » est ce que donnerait la règle générale, mais ce mot y échappe : sa forme est à retenir.`;
@@ -183,6 +192,16 @@ export function diagnoseCaseAnswer(exercise: CaseExercise, answer: string): stri
   if (adjectiveRight && !nounRight) {
     const inner = nounDiagnosis(noun, nounGiven, targetCase, plural);
     return `L'adjectif est juste. ${inner ?? "Le nom, lui, n'a pas la bonne terminaison."}`;
+  }
+  // Les deux faux, et accordés entre eux : c'est le GROUPE qui est à un autre
+  // cas — « старый дедушка » est son nominatif, pas seulement celui du nom.
+  const together = cellsOf(noun, nounGiven).filter(
+    (cell) =>
+      normalizeAnswer(declineAdjective(adjective, cell.case, noun.gender, cell.plural, noun.animacy).form) ===
+      adjectiveGiven
+  );
+  if (together.length > 0) {
+    return describeCells(answer.trim(), together, targetCase, plural, "le groupe");
   }
   return nounDiagnosis(noun, nounGiven, targetCase, plural);
 }

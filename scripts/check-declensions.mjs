@@ -1243,6 +1243,86 @@ const NARROW = {
   }
 }
 
+// ─── 13. Refaire un exercice de cas depuis le journal ──────────────
+// « Mes erreurs » ne garde d'une réponse que ce que /api/cases/attempt écrit
+// dans le journal. L'exercice reconstruit doit attendre EXACTEMENT la même
+// forme : sinon l'apprenant serait noté contre un exercice qu'il n'a jamais
+// raté. Un QCM revient en saisie, sur la même phrase.
+{
+  const {
+    rebuildCaseExercise,
+    generateIsolatedExercise: isolated,
+    generateMcqExercise: mcq,
+    generateSentenceExercise: sentence,
+    generateNumeralExercise: numeral,
+  } = await jiti.import("../lib/grammar/exercise-generator.ts");
+  const refOf = (ex) => ({
+    caseId: ex.targetCase,
+    nounId: ex.noun.id,
+    plural: ex.plural,
+    adjectiveId: ex.adjective?.id ?? null,
+    triggerId: ex.trigger?.id ?? null,
+    sentence: ex.sentenceTemplate ?? null,
+    exerciseKind: ex.kind,
+    numeral: ex.numeral ?? null,
+  });
+  const problems = [];
+  const draws = [];
+  for (const c of CASE_ORDER) {
+    for (let i = 0; i < 60; i += 1) {
+      draws.push(sentence(c, undefined, NOUNS, i % 2 === 0, i % 3 === 0));
+      draws.push(mcq(c, undefined, NOUNS, i % 2 === 1, i % 3 === 1));
+      if (c !== "nominative" || i % 2 === 0) draws.push(isolated(c, i % 2 === 0, NOUNS, i % 3 === 2));
+    }
+  }
+  for (let i = 0; i < 120; i += 1) draws.push(numeral());
+
+  for (const ex of draws) {
+    const rebuilt = rebuildCaseExercise(refOf(ex));
+    const where = `${ex.kind} ${ex.targetCase} ${ex.noun.lemma}${ex.adjective ? ` + ${ex.adjective.lemmaM}` : ""}`;
+    if (!rebuilt) {
+      problems.push(`${where} : non reconstruit`);
+      continue;
+    }
+    if (rebuilt.correctForm !== ex.correctForm) problems.push(`${where} : « ${rebuilt.correctForm} » au lieu de « ${ex.correctForm} »`);
+    if ((ex.sentenceTemplate ?? null) !== (rebuilt.sentenceTemplate ?? null)) problems.push(`${where} : autre phrase`);
+    if (ex.kind === "trigger-mcq" && rebuilt.kind !== "sentence-fixed") problems.push(`${where} : un QCM doit revenir en saisie`);
+    if (rebuilt.options) problems.push(`${where} : options reconstruites — la saisie ne doit rien montrer`);
+  }
+  require_(problems.length === 0, `reconstruction des cas : ${problems.length} défaut(s) — ${problems.slice(0, 3).join(" | ")}`);
+  require_(draws.length > 1000, `reconstruction des cas : seulement ${draws.length} exercices rejoués`);
+
+  // Le groupe entier laissé au nominatif : le diagnostic cite le GROUPE, pas
+  // le seul nom (« старый дедушка », et non « дедушка »).
+  {
+    const { diagnoseCaseAnswer } = await jiti.import("../lib/grammar/diagnose.ts");
+    let witnessed = 0;
+    for (const ex of draws) {
+      if (!ex.adjective || ex.plural || ex.targetCase === "nominative" || witnessed >= 40) continue;
+      const nominative = `${declineAdjective(ex.adjective, "nominative", ex.noun.gender, false, ex.noun.animacy).form} ${ex.noun.forms.singular[0]}`;
+      if (stripAccent(nominative) === stripAccent(ex.correctForm)) continue;
+      witnessed += 1;
+      const note = diagnoseCaseAnswer(ex, stripAccent(nominative));
+      expect(
+        `groupe au nominatif (${stripAccent(nominative)} → ${ex.targetCase})`,
+        note?.startsWith(`« ${stripAccent(nominative)} » est la forme du dictionnaire`) && note.includes("le groupe"),
+        true
+      );
+    }
+    require_(witnessed >= 10, `diagnostic du groupe : seulement ${witnessed} témoins`);
+  }
+
+  const stolRef = { caseId: "genitive", nounId: "inexistant", plural: false, adjectiveId: null, triggerId: null, sentence: null, exerciseKind: "isolated", numeral: null };
+  expect("reconstruction : nom et déclencheur inconnus → rien", rebuildCaseExercise(stolRef), null);
+  expect("reconstruction : cas inconnu → rien", rebuildCaseExercise({ ...stolRef, caseId: "vocatif", nounId: NOUNS[0].id }), null);
+  const someTrigger = TRIGGERS.find((t) => t.caseId === "dative");
+  const onTrigger = rebuildCaseExercise({ ...stolRef, caseId: "dative", triggerId: someTrigger.id });
+  require_(
+    onTrigger?.trigger?.id === someTrigger.id && onTrigger.targetCase === "dative",
+    "reconstruction : sans nom, l'erreur doit revenir sur son déclencheur"
+  );
+}
+
 // ─── 12. Les cas mélangés ──────────────────────────────────────────
 // Le mélange ne doit servir que des phrases dont le déclencheur appartient au
 // cas demandé, parmi les cas ouverts au niveau — et les servir tous.

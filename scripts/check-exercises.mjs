@@ -226,6 +226,45 @@ for (const bank of MODULES) {
   expect("mot à écouter quand la réponse est une lecture", spokenSentence("молоко́", "malako"), "молоко́");
 }
 
+// ─── 3 ter. « Mes erreurs » : ce qui reste raté ───────────────────
+//
+// Une erreur est en attente tant que la DERNIÈRE réponse enregistrée à cet
+// exercice est fausse. Relu dans le journal, sans table : chaque cas limite
+// ci-dessous a une conséquence visible — une erreur levée à tort ne revient
+// jamais, une erreur jamais levée revient pour toujours.
+{
+  const E = await jiti.import("../lib/practice/errors.ts");
+  const at = (minutes) => new Date(Date.UTC(2026, 8, 1, 10, minutes)).toISOString();
+  const aspect = (itemId, correct, minutes) => ({ kind: "aspect", correct, created_at: at(minutes), meta: { skill: "past", itemId } });
+  const keys = (list) => list.map((e) => e.key).join(",");
+
+  expect("erreur puis réussite : levée", keys(E.pendingErrors([aspect("past:a:b", false, 1), aspect("past:a:b", true, 2)])), "");
+  expect("réussite puis erreur : en attente", keys(E.pendingErrors([aspect("past:a:b", true, 1), aspect("past:a:b", false, 2)])), "aspect:past:a:b");
+  expect("ordre du journal ignoré, ordre du temps respecté", keys(E.pendingErrors([aspect("past:a:b", false, 5), aspect("past:a:b", true, 2)])), "aspect:past:a:b");
+  const twice = E.pendingErrors([aspect("past:a:b", false, 1), aspect("past:a:b", false, 3)]);
+  expect("deux échecs : compte des ratés", twice[0]?.misses, 2);
+  expect("kind inconnu ignoré", E.pendingErrors([{ kind: "vocab", correct: false, created_at: at(1), meta: { cardId: "x" } }]).length, 0);
+  expect("sans itemId : ignoré", E.pendingErrors([{ kind: "motion", correct: false, created_at: at(1), meta: {} }]).length, 0);
+
+  // Les cas : l'exercice exact, et le déclencheur des réponses anciennes.
+  const caseMeta = (extra) => ({ caseId: "genitive", triggerId: "prep-bez", ...extra });
+  const oldStyle = { kind: "case", correct: false, created_at: at(1), meta: caseMeta({}) };
+  const exact = { kind: "case", correct: false, created_at: at(2), meta: caseMeta({ nounId: "stol", plural: false, sentence: "Я пью чай без ___." }) };
+  expect("cas : deux erreurs distinctes", E.pendingErrors([oldStyle, exact]).length, 2);
+  const solved = { kind: "case", correct: true, created_at: at(3), meta: caseMeta({ nounId: "dom", plural: false, sentence: "Я пью чай без ___." }) };
+  expect(
+    "cas : une réussite sur le déclencheur lève l'erreur ancienne, pas l'exercice exact",
+    keys(E.pendingErrors([oldStyle, exact, solved])),
+    E.pendingErrors([exact])[0].key
+  );
+
+  // Échue : d'avant aujourd'hui.
+  const now = Date.UTC(2026, 8, 2, 9, 0);
+  require_(E.isDueError({ lastWrongAt: at(1) }, now), "erreur de la veille : doit être échue");
+  require_(!E.isDueError({ lastWrongAt: new Date(now - 60000).toISOString() }, now), "erreur du jour : ne doit pas être échue");
+  expect("plafond d'une séance d'erreurs", E.pendingErrors(Array.from({ length: 50 }, (_, i) => aspect(`past:c${i}:p`, false, i))).length, E.MAX_ERRORS);
+}
+
 // ─── 4. Témoins ──────────────────────────────────────────────────
 expect("heure 3:00", numbers.tellTime(3, 0), "три часа́");
 expect("heure 1:00", numbers.tellTime(1, 0), "час");

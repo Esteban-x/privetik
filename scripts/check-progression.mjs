@@ -28,6 +28,7 @@ const PART = await jiti.import("../lib/participles/exercises.ts");
 const CONJ = await jiti.import("../lib/conjugation/exercises.ts");
 const ALPHA = await jiti.import("../lib/alphabet/exercises.ts");
 const NUM = await jiti.import("../lib/numbers/exercises.ts");
+const ADJ = await jiti.import("../lib/adjectives/exercises.ts");
 
 /** Progression fictive : toutes les compétences d'un module maîtrisées. */
 function solidModule(skills) {
@@ -36,6 +37,7 @@ function solidModule(skills) {
 const ALL_MODULES_SOLID = {
   alphabet: solidModule(ALPHA.ALPHABET_SKILLS),
   conjugation: solidModule(CONJ.CONJUGATION_SKILLS),
+  adjectives: solidModule(ADJ.ADJECTIVE_SKILLS),
   motion: solidModule(MOTION.MOTION_SKILLS),
   aspect: solidModule(ASPECT.ASPECT_SKILLS),
   numbers: solidModule(NUM.NUMBER_SKILLS),
@@ -44,6 +46,7 @@ const ALL_MODULES_SOLID = {
 const NO_MODULES = {
   alphabet: [],
   conjugation: [],
+  adjectives: [],
   motion: [],
   aspect: [],
   numbers: [],
@@ -228,9 +231,39 @@ require_(
   "tous les modules devraient être solides dans ce scénario"
 );
 require_(
-  everything.modules.length === 6,
-  `${everything.modules.length} modules dans l'estimation, 6 attendus`
+  everything.modules.length === 7,
+  `${everything.modules.length} modules dans l'estimation, 7 attendus (l'accord de l'adjectif compris)`
 );
+require_(
+  casesOnly.modules.some((m) => m.id === "adjectives"),
+  "l'accord de l'adjectif doit entrer dans la couverture du programme"
+);
+
+// Une maîtrise s'use : sans pratique depuis STALE_AFTER_DAYS, ce qui était
+// maîtrisé ne compte plus — et le reprendre suffit à le rendre.
+{
+  const longAgo = new Date(Date.now() - (E.STALE_AFTER_DAYS + 5) * 864e5).toISOString();
+  const recently = new Date(Date.now() - 3 * 864e5).toISOString();
+  const full = progressRows({ basic: 1, intermediate: 1, advanced: 1 });
+  const stale = E.computeLevelEstimate(
+    full.map((r) => ({ ...r, last_seen: longAgo })),
+    solidCases,
+    ALL_MODULES_SOLID,
+    0
+  );
+  const fresh = E.computeLevelEstimate(
+    full.map((r) => ({ ...r, last_seen: recently })),
+    solidCases,
+    ALL_MODULES_SOLID,
+    0
+  );
+  require_(stale.masteredTriggers === 0, `maîtrise ancienne : ${stale.masteredTriggers} déclencheurs encore comptés`);
+  require_(
+    LEVELS.indexOf(stale.depthLevel) < LEVELS.indexOf(fresh.depthLevel),
+    `une maîtrise vieille de ${E.STALE_AFTER_DAYS + 5} jours garde le niveau ${stale.depthLevel}`
+  );
+  require_(fresh.depthLevel === "C1", `une maîtrise récente devrait valoir C1 (${fresh.depthLevel})`);
+}
 
 // Le choix inverse, verrouillé : « Lire et écrire » et « Nombres » comptent
 // dans l'affichage mais ne rabattent jamais le niveau. Sans cette
