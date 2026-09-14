@@ -169,6 +169,10 @@ app/
     level-test/evaluate  rejoue le calcul du niveau côté serveur
     profile          met à jour le profil (nom affiché, onboarded, objectif
                      quotidien de révision)
+    errors           les erreurs en attente, relues dans le journal
+    lessons          leçons lues et quiz de fin de leçon, sur le compte
+    translation/attempt  corrige une traduction (référence, puis second avis)
+    vocab/packs      paquets de départ : résumés et ajout
   auth/callback      échange le code OAuth Google → session
   auth/confirm       valide le lien reçu par email → session
   auth/confirmed     écran de confirmation avant de continuer
@@ -177,6 +181,9 @@ app/
   login, onboarding, dashboard
   cases, motion, aspect, participles, adjectives, vocabulary, reading
                      (modules)
+  seance             la séance du jour
+  erreurs            « Mes erreurs » : refaire ce qui a été raté
+  traduction         traduire des phrases entières, français → russe
 components/
   auth/              SignupForm, TurnstileWidget
   account/           ProfileSettings, PreferencesSettings, PasswordSettings,
@@ -188,6 +195,10 @@ lib/
   ai/                client Anthropic serveur + prompts système
   supabase/          clients navigateur/serveur + types
   srs/, vocabulary/, reading/, leveltest/
+  practice/          séance d'exercices partagée, rattrapage, erreurs en
+                     attente, séance du jour
+  translation/       phrases à traduire et comparaison à la lettre
+  courses/quiz.ts    quiz de fin de leçon, tiré des banques et des exemples
 supabase/schema.sql  schéma complet (tables + RLS + trigger)
 proxy.ts             rafraîchit la session + protège les routes privées
 scripts/
@@ -249,6 +260,46 @@ derniers tirages par compétence. Le tirage n'est pas remplacé : on lui demande
 vingt-quatre candidats au lieu d'un, et on garde celui vu le moins récemment.
 Un exercice porte plusieurs identifiants — la phrase, le mot — et le plus
 récent commande.
+
+## Retenir, pas seulement pratiquer
+
+Les modules corrigeaient bien ; ils ne faisaient presque rien pour qu'une
+réponse ratée finisse par être sue. Ce qui suit est construit sur ce que la
+recherche sur la mémoire établit le plus solidement — se tester plutôt que
+relire, espacer, mélanger — et **sans aucune table nouvelle** : tout se lit
+dans `activity_log.meta`, `exercise_progress` et `srs_cards`.
+
+- **Rattrapage dans la séance** (`lib/practice/retry.ts`) : une erreur revient
+  trois exercices plus loin, deux fois au plus, jamais deux rattrapages de
+  suite ; séries de dix avec bilan. Les rattrapages ne sont pas notés.
+- **Dire ce que représente la mauvaise réponse** : chaque leurre porte une
+  note (`whyNot`, « forme de « ты » », « se dirait « пятьдеся́т » ») ; aux cas,
+  la forme tapée est diagnostiquée (`lib/grammar/diagnose.ts`).
+- **Mes erreurs** (`/erreurs`, `lib/practice/errors.ts`) : une erreur est en
+  attente tant que la dernière réponse à cet exercice est fausse ; chaque
+  banque sait refaire l'exercice exact à partir de son identifiant
+  (`rebuild*`). Les erreurs d'avant aujourd'hui passent en premier.
+- **Cas mélangés** (`/cases/melange`) : choisir le cas fait partie de la
+  question ; l'indice du déclencheur s'efface quand il est maîtrisé.
+- **Séance du jour** (`/seance`, `lib/practice/daily-session.ts`) : le
+  vocabulaire échu, les erreurs des jours précédents, UNE compétence ciblée
+  (la plus faible, sinon une maîtrise qui s'use, sinon la prochaine à portée),
+  un texte non lu.
+- **Vocabulaire** : paquets de départ tirés de la banque, dix mots nouveaux
+  par jour au plus (`lib/vocabulary/new-words.ts`), réapprentissage dans la
+  séance, phrases à trous (`lib/vocabulary/cloze.ts`, jugées par le serveur
+  avec la même fonction), mode de révision conseillé selon la file.
+- **Leçons** : un quiz de fin de leçon sur 124 leçons, sans question écrite à
+  la main (`lib/courses/quiz.ts`, tirage semé par le slug) ; les leçons lues
+  suivent le compte (`app/api/lessons`).
+- **L'oreille** : les nombres à l'oreille (`/numbers/listening`) et la dictée
+  (`/alphabet/dictation`), dont chaque leurre est une prononciation réelle.
+- **Traduire** (`/traduction`) : des phrases entières du cours et de la
+  bibliothèque ; la référence à la lettre, puis un second avis du modèle
+  quand la phrase dit la même chose autrement.
+- **Une maîtrise s'use** : sans pratique depuis 60 jours, elle ne compte plus
+  dans le niveau ; les modules marquent « à rafraîchir » après trois semaines,
+  et le tableau de bord montre la précision des cas sur trente jours.
 
 ## Le module Cas
 
@@ -378,6 +429,13 @@ sitemap ni les liens) est désormais bâti autour de cette question.
 - **Deviner les cas** : les couleurs s'effacent, on choisit le cas de chaque
   mot souligné, l'explication suit la réponse. Seuls les tags vérifiés entrent
   dans le quiz quand il y en a assez.
+- **Comprendre** (textes de la bibliothèque) : des questions sur le sens, en
+  français, écrites à la main ; le texte s'y lit sans aide.
+- **Écouter le texte** : le texte entier, phrase par phrase, la phrase
+  entendue surlignée.
+- **Ajouter à mes mots** : depuis le panneau d'un mot dont la forme du
+  dictionnaire est connue, avec la phrase du texte pour exemple — elle fera
+  la phrase à trous.
 
 La raison d'un cas vient de trois sources, de la plus sûre à la moins sûre,
 et l'écran dit toujours laquelle il montre :
@@ -603,6 +661,11 @@ Deux mesures cohabitent, volontairement :
   justifierait C1, mais les verbes de mouvement n'ont pas encore été
   abordés » dit quoi faire, là où un chiffre seul ne dirait rien.
 
+  Sept modules entrent dans la couverture, l'accord de l'adjectif compris. Et
+  une maîtrise **s'use** : sans pratique depuis `STALE_AFTER_DAYS` (60 jours),
+  un déclencheur ou une compétence ne compte plus comme maîtrisé — le
+  reprendre suffit à le rendre.
+
 Aucun ne remplace l'autre, et l'écart entre les deux est le signal utile :
 quand la pratique dépasse le niveau testé, le tableau de bord propose de
 repasser le test.
@@ -687,7 +750,15 @@ de réussite reste estimée A0.
   A1 de A2. Travail de contenu, pas de code.
 - Élargir encore le vivier du test : 100 items tiennent 5 passations
   inédites, au-delà les questions commencent à revenir.
-- Audio / prononciation via un TTS.
+- Les traductions ratées n'entrent pas dans « Mes erreurs » : la page refait
+  les exercices côté navigateur, et la référence d'une traduction ne doit pas
+  y arriver avant la réponse. Il faudrait une reconstruction côté serveur.
+- Questions de compréhension pour les textes générés : elles sont écrites à
+  la main pour la bibliothèque, et une question générée demanderait les mêmes
+  garde-fous que les explications de cas.
+- La dictée tient sur 52 mots : ceux dont l'oreille produit au moins deux
+  fautes réelles et sûres. L'alternance des voyelles finales et les
+  consonnes muettes (со́лнце) en ajouteraient, à écrire à la main.
 
 ## Le captcha
 
