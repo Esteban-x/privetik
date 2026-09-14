@@ -1105,6 +1105,186 @@ const NARROW = {
   }
 }
 
+// ─── 11. Ce qu'une réponse fausse EST ──────────────────────────────
+// Le diagnostic (lib/grammar/diagnose.ts) nomme la case du tableau qu'une
+// réponse fausse occupe. Une explication fausse serait pire que pas
+// d'explication : on vérifie, sur toute la banque, qu'il se tait devant une
+// réponse juste, qu'il explique chaque autre forme du mot, et qu'il ne nomme
+// jamais une case que la forme n'occupe pas.
+{
+  const { diagnoseCaseAnswer, cellsOf } = await jiti.import("../lib/grammar/diagnose.ts");
+  const { ruleForm } = await jiti.import("../lib/grammar/decline.ts");
+  const { generateIsolatedExercise } = await jiti.import("../lib/grammar/exercise-generator.ts");
+  const CASE_FR = {
+    nominative: "nominatif",
+    genitive: "génitif",
+    dative: "datif",
+    accusative: "accusatif",
+    instrumental: "instrumental",
+    prepositional: "prépositionnel",
+  };
+  const exerciseFor = (noun, targetCase, plural) => {
+    const d = declineNoun(noun, targetCase, plural);
+    return {
+      kind: "isolated",
+      noun,
+      targetCase,
+      plural,
+      correctForm: d.form,
+      accentedForm: d.accented,
+      variantForm: d.variant,
+      ruleApplied: d.ruleApplied,
+    };
+  };
+
+  // a) Toute la banque : juste → silence ; autre case → une case vraie nommée.
+  const problems = [];
+  let explained = 0;
+  for (const noun of NOUNS) {
+    for (const plural of [false, true]) {
+      for (const target of CASE_ORDER) {
+        const ex = exerciseFor(noun, target, plural);
+        if (diagnoseCaseAnswer(ex, ex.accentedForm) !== null) {
+          problems.push(`${noun.lemma} ${target} : une réponse juste reçoit un diagnostic`);
+        }
+        const accepted = [ex.correctForm, ex.variantForm].filter(Boolean).map(normalizeAnswer);
+        for (const otherPlural of [false, true]) {
+          (otherPlural ? noun.forms.plural : noun.forms.singular).forEach((form) => {
+            if (!form || accepted.includes(normalizeAnswer(form))) return;
+            const message = diagnoseCaseAnswer(ex, form);
+            if (!message) {
+              problems.push(`${noun.lemma} : « ${form} » pour ${target} ${plural ? "pl." : "sg."} reste sans explication`);
+              return;
+            }
+            const cells = cellsOf(noun, form);
+            const honest =
+              message.includes("forme du dictionnaire") ||
+              cells.some((cell) => message.includes(CASE_FR[cell.case]));
+            if (!honest) problems.push(`${noun.lemma} : « ${message} » ne nomme aucune case de « ${form} »`);
+            explained += 1;
+          });
+        }
+      }
+    }
+  }
+  require_(
+    problems.length === 0,
+    `diagnostic : ${problems.length} défaut(s) — ex. ${problems.slice(0, 3).join(" | ")}`
+  );
+  require_(explained > 50000, `diagnostic : seulement ${explained} réponses fausses expliquées`);
+
+  // b) Témoins, écrits à la main.
+  const stol = NOUNS.find((n) => n.lemma === "стол");
+  if (stol) {
+    const genSg = exerciseFor(stol, "genitive", false);
+    const toDative = diagnoseCaseAnswer(genSg, "столу") ?? "";
+    require_(
+      toDative.includes("datif") && toDative.includes("génitif"),
+      `diagnostic témoin : « столу » pour le génitif → « ${toDative} »`
+    );
+    require_(
+      (diagnoseCaseAnswer(genSg, "стол") ?? "").includes("forme du dictionnaire"),
+      "diagnostic témoin : « стол » pour le génitif devrait nommer la forme du dictionnaire"
+    );
+    const genPl = exerciseFor(stol, "genitive", true);
+    require_(
+      (diagnoseCaseAnswer(genPl, "стола") ?? "").includes("mais au singulier"),
+      "diagnostic témoin : « стола » pour le génitif pluriel devrait dire « bon cas, autre nombre »"
+    );
+  } else {
+    failures.push("diagnostic témoin : « стол » introuvable dans la banque");
+  }
+
+  // c) La règle appliquée à un mot qui y échappe.
+  let ruleWitness = null;
+  outer: for (const noun of NOUNS) {
+    for (const plural of [false, true]) {
+      for (const target of CASE_ORDER) {
+        const ex = exerciseFor(noun, target, plural);
+        const predicted = ruleForm(noun, target, plural);
+        if (normalizeAnswer(predicted) === normalizeAnswer(ex.correctForm)) continue;
+        if (cellsOf(noun, predicted).length > 0) continue;
+        ruleWitness = { ex, predicted };
+        break outer;
+      }
+    }
+  }
+  require_(ruleWitness !== null, "diagnostic : aucun mot où la règle se trompe — le témoin ne teste rien");
+  if (ruleWitness) {
+    require_(
+      (diagnoseCaseAnswer(ruleWitness.ex, ruleWitness.predicted) ?? "").includes("règle générale"),
+      `diagnostic : « ${ruleWitness.predicted} » (${ruleWitness.ex.noun.lemma}) devrait être reconnu comme la règle générale`
+    );
+  }
+
+  // d) Le groupe nominal : l'adjectif OU le nom, et lequel.
+  let group = null;
+  for (let i = 0; i < 400 && !group; i += 1) {
+    const ex = generateIsolatedExercise("dative", false, NOUNS, true);
+    if (ex.adjective) group = ex;
+  }
+  require_(group !== null, "diagnostic : aucun groupe adjectif + nom tiré");
+  if (group) {
+    const [adjectiveForm, nounForm] = normalizeAnswer(group.correctForm).split(" ");
+    const wrongAdjective = declineAdjective(group.adjective, "nominative", group.noun.gender, false, group.noun.animacy).form;
+    const wrongNoun = normalizeAnswer(group.noun.forms.singular[0]);
+    if (normalizeAnswer(wrongAdjective) !== adjectiveForm) {
+      require_(
+        (diagnoseCaseAnswer(group, `${wrongAdjective} ${nounForm}`) ?? "").startsWith("Le nom est juste"),
+        "diagnostic : un groupe au nom juste et à l'adjectif faux n'est pas reconnu"
+      );
+    }
+    if (wrongNoun !== nounForm) {
+      require_(
+        (diagnoseCaseAnswer(group, `${adjectiveForm} ${wrongNoun}`) ?? "").startsWith("L'adjectif est juste"),
+        "diagnostic : un groupe à l'adjectif juste et au nom faux n'est pas reconnu"
+      );
+    }
+  }
+}
+
+// ─── 12. Les cas mélangés ──────────────────────────────────────────
+// Le mélange ne doit servir que des phrases dont le déclencheur appartient au
+// cas demandé, parmi les cas ouverts au niveau — et les servir tous.
+{
+  const { mixableCases, drawMixedCaseCandidate } = await jiti.import("../lib/grammar/case-draw.ts");
+  const levels = ["A0", "A1", "A2", "B1", "B2", "C1"];
+  let previous = 0;
+  for (const level of levels) {
+    const open = mixableCases(level);
+    require_(open.length >= 3, `mélange (${level}) : moins de trois cas ouverts`);
+    require_(open.length >= previous, `mélange (${level}) : moins de cas ouverts qu'au niveau précédent`);
+    previous = open.length;
+  }
+  expect("mélange sans niveau : les six cas", mixableCases(undefined).length, 6);
+
+  const open = mixableCases("B1");
+  const seen = new Map();
+  for (let i = 0; i < 1500; i += 1) {
+    const ex = drawMixedCaseCandidate(
+      { triggerStats: {}, level: "B1", pool: nounsForLevel("B1"), numberMode: "mixed" },
+      open
+    );
+    seen.set(ex.targetCase, (seen.get(ex.targetCase) ?? 0) + 1);
+    if (!ex.sentenceTemplate || !ex.trigger || ex.trigger.caseId !== ex.targetCase || !open.includes(ex.targetCase)) {
+      failures.push(`mélange : exercice incohérent (${ex.targetCase}, ${ex.trigger?.id ?? "sans déclencheur"})`);
+      break;
+    }
+  }
+  checks += 1;
+  for (const caseId of open) {
+    require_((seen.get(caseId) ?? 0) > 0, `mélange (B1) : le ${caseId} n'est jamais servi`);
+  }
+  if (open.includes("nominative")) {
+    const others = open.filter((c) => c !== "nominative").map((c) => seen.get(c) ?? 0);
+    const average = others.reduce((a, b) => a + b, 0) / others.length;
+    require_(
+      (seen.get("nominative") ?? 0) < average,
+      "mélange : le nominatif, dont l'indice montre déjà la forme, sort aussi souvent que les autres"
+    );
+  }
+}
+
 // ─── Rapport ───────────────────────────────────────────────────────
 let irregularForms = 0;
 let irregularWords = 0;

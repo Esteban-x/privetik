@@ -630,6 +630,19 @@ function byRule(noun: Noun, targetCase: CaseId, plural: boolean, stressed: boole
   return firstSingular(noun, targetCase, stem, stressed);
 }
 
+/**
+ * Ce que la règle générale donnerait pour cette case, sans accent.
+ *
+ * Exposé pour le diagnostic d'une réponse fausse (lib/grammar/diagnose.ts) :
+ * « отеца́ » n'est pas une faute de cas, c'est la règle appliquée à un mot
+ * qui lui échappe — et le dire apprend quelque chose, là où « pas tout à
+ * fait » n'apprend rien.
+ */
+export function ruleForm(noun: Noun, targetCase: CaseId, plural = false): string {
+  const accented = (plural ? noun.forms.plural : noun.forms.singular)[CASE_ORDER.indexOf(targetCase)];
+  return byRule(noun, targetCase, plural, endingIsStressed(accented)).form;
+}
+
 // ─── Point d'entrée ────────────────────────────────────────────────
 
 export function declineNoun(noun: Noun, targetCase: CaseId, plural = false): DeclensionResult {

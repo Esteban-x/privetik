@@ -331,11 +331,18 @@ function PracticeFeedback({
             réponse et sa règle ; elle dit maintenant aussi ce qu'on vient de
             choisir — la forme d'une autre personne, l'heure d'avant — parce
             que c'est la confusion qu'il faut défaire. */}
-        {feedback.note && picked && (
-          <p className="mt-2 font-display text-sm leading-relaxed text-text">
-            <span className="font-semibold">« {picked} »</span> : {feedback.note}.
-          </p>
-        )}
+        {feedback.note &&
+          picked &&
+          // Deux formes de note : le fragment d'un leurre (« forme de
+          // « ты » »), qu'on accroche à la réponse choisie, et la phrase
+          // entière d'un diagnostic, qui nomme déjà la réponse elle-même.
+          (/[.!?]$/.test(feedback.note) ? (
+            <p className="mt-2 font-display text-sm leading-relaxed text-text">{feedback.note}</p>
+          ) : (
+            <p className="mt-2 font-display text-sm leading-relaxed text-text">
+              <span className="font-semibold">« {picked} »</span> : {feedback.note}.
+            </p>
+          ))}
         <p className="mt-1 font-display text-sm leading-relaxed text-muted">{feedback.reason}</p>
         {feedback.retry && feedback.correct && (
           <p className="mt-2 font-display text-xs leading-relaxed text-muted">

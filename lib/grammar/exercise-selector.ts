@@ -137,3 +137,16 @@ export function pickWeightedTrigger(
   }
   return triggers[triggers.length - 1];
 }
+
+/**
+ * Un déclencheur est-il maîtrisé ? La même définition que le tirage et
+ * l'estimation du niveau : c'est elle qui décide, sur la page d'un cas, de
+ * cacher la pastille « Déclencheur » derrière un bouton « Indice ».
+ */
+export function isTriggerMastered(stat: TriggerStat | undefined): boolean {
+  return (
+    stat !== undefined &&
+    stat.attempts >= MASTERY_MIN_ATTEMPTS_EACH &&
+    stat.correct / stat.attempts >= MASTERY_ACCURACY
+  );
+}

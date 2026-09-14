@@ -1,7 +1,8 @@
-import type { CefrLevel } from "@/lib/supabase/types";
+import { CEFR_LEVELS, type CefrLevel } from "@/lib/supabase/types";
 import type { CaseNumberMode } from "@/lib/storage";
 import { pickFresh } from "@/lib/practice/recent";
 import { CaseId, Noun } from "./types";
+import { CASES_BY_LEARNING_ORDER } from "./cases";
 import {
   CaseExercise,
   generateIsolatedExercise,
@@ -144,6 +145,71 @@ export function pickCaseExercise(options: CaseDrawOptions): CaseExercise {
   return pickFresh(
     caseRecentKey(options.caseId, options.tab),
     () => drawCaseCandidate(options),
+    caseExerciseIds,
+  );
+}
+
+// ─── Les cas mélangés ─────────────────────────────────────────────
+//
+// SUR LA PAGE D'UN CAS, LA MOITIÉ DE LA QUESTION EST DÉJÀ RÉPONDUE. On sait
+// qu'on travaille le génitif : il ne reste qu'à trouver la terminaison. Or
+// devant une vraie phrase, la décision difficile est l'autre — QUEL cas ce
+// mot demande-t-il ? Elle ne s'entraînait nulle part, sauf en reconnaissance
+// dans « Deviner les cas ». Ici les cas se mélangent, et l'apprenant doit
+// d'abord choisir le cas avant d'écrire la forme. C'est plus lent et plus
+// pénible sur le moment ; c'est aussi ce qui apprend à choisir la règle en
+// situation, et pas seulement à l'appliquer quand on la connaît d'avance.
+
+/** La mémoire courte des exercices mélangés : une seule, tous cas confondus. */
+export const MIXED_RECENT_KEY = "cases:mixed";
+
+/**
+ * Les cas entre lesquels il est juste de faire choisir, à ce niveau : ceux
+ * déjà de saison, plus le suivant. Jamais moins de trois — à deux, le
+ * mélange tourne au pile ou face. Sans niveau connu, les six.
+ */
+export function mixableCases(level?: CefrLevel): CaseId[] {
+  if (!level) return CASES_BY_LEARNING_ORDER.map((c) => c.id);
+  const reach = CEFR_LEVELS.indexOf(level) + 1;
+  const open = CASES_BY_LEARNING_ORDER.filter(
+    (c) => CEFR_LEVELS.indexOf(c.introducedAt) <= reach
+  ).map((c) => c.id);
+  return open.length >= 3 ? open : CASES_BY_LEARNING_ORDER.slice(0, 3).map((c) => c.id);
+}
+
+/**
+ * Le nominatif pèse moitié : dans une phrase à trou, sa forme est celle du
+ * dictionnaire que l'indice montre déjà. Il reste dans le mélange — savoir
+ * quand NE PAS décliner fait partie du choix — sans en occuper le sixième.
+ */
+const MIX_WEIGHT: Partial<Record<CaseId, number>> = { nominative: 0.5 };
+
+export function drawMixedCaseCandidate(
+  options: Omit<CaseDrawOptions, "tab" | "caseId">,
+  cases: CaseId[],
+  random: () => number = Math.random
+): CaseExercise {
+  const weights = cases.map((c) => MIX_WEIGHT[c] ?? 1);
+  let roll = random() * weights.reduce((sum, w) => sum + w, 0);
+  let caseId = cases[cases.length - 1];
+  for (let i = 0; i < cases.length; i += 1) {
+    roll -= weights[i];
+    if (roll <= 0) {
+      caseId = cases[i];
+      break;
+    }
+  }
+  return drawCaseCandidate({ ...options, tab: "sentence", caseId });
+}
+
+/** Comme `pickCaseExercise` : plusieurs candidats, le moins récent l'emporte, sans mémoriser. */
+export function pickMixedCaseExercise(
+  options: Omit<CaseDrawOptions, "tab" | "caseId">,
+  cases: CaseId[]
+): CaseExercise {
+  return pickFresh(
+    MIXED_RECENT_KEY,
+    () => drawMixedCaseCandidate(options, cases),
     caseExerciseIds,
   );
 }

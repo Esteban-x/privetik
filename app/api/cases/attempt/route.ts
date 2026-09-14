@@ -12,7 +12,7 @@ import {
   normalizeAnswer,
   resolveExerciseNoun,
 } from "@/lib/grammar/exercise-generator";
-import { getTrigger } from "@/lib/grammar/triggers";
+import { getTrigger, templatesFor } from "@/lib/grammar/triggers";
 import {
   getAnthropic,
   isFrenchProse,
@@ -110,6 +110,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
+  const EXERCISE_KINDS: string[] = ["isolated", "sentence-fixed", "trigger-mcq", "numeral"];
 
   // `targetCase` est le cas réellement demandé par l'exercice, pas celui de
   // la page : "21 + стол" appelle un nominatif tout en vivant sur la page
@@ -249,11 +250,40 @@ export async function POST(req: Request) {
   );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // DE QUOI REFAIRE L'EXERCICE EXACT, pour « Mes erreurs » : le nom, le
+  // nombre, l'adjectif retenu, la phrase et la sorte d'exercice. Rien de tout
+  // cela ne décide du verdict, calculé plus haut. Chaque champ n'est gardé
+  // que s'il correspond à ce que l'app sait produire : une phrase qui
+  // n'appartient pas au déclencheur, une sorte inconnue, un nombre farfelu
+  // restent à `null` — l'erreur reviendra alors sur le même déclencheur, avec
+  // un autre mot.
+  const exerciseKind =
+    typeof body.exerciseKind === "string" && EXERCISE_KINDS.includes(body.exerciseKind)
+      ? body.exerciseKind
+      : null;
+  const numeral =
+    Number.isInteger(body.numeral) && body.numeral >= 0 && body.numeral <= 1000 ? body.numeral : null;
+  const knownSentence =
+    sentence && triggerId && trigger && templatesFor(trigger).some((t) => t.ru === sentence)
+      ? sentence
+      : null;
+
   await supabase.from("activity_log").insert({
     user_id: user.id,
     kind: "case",
     correct,
-    meta: { caseId: targetCase, gender, triggerId, revealed },
+    meta: {
+      caseId: targetCase,
+      gender,
+      triggerId,
+      revealed,
+      nounId: noun.id,
+      plural,
+      adjectiveId: adjective?.id ?? null,
+      sentence: knownSentence,
+      exerciseKind,
+      numeral,
+    },
   });
 
   // Progression par déclencheur (préposition/verbe/expression), plus fine

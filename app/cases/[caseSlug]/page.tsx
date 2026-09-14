@@ -119,6 +119,14 @@ export default async function CasePracticePage({
 
       <CaseDeclension caseInfo={caseInfo} userLevel={userLevel} signedIn={signedIn} />
 
+      {/* Ici le cas est connu d'avance ; le mélange demande de le reconnaître. */}
+      <Link
+        href="/cases/melange"
+        className="mt-5 inline-flex items-center gap-2 font-display text-sm font-semibold text-accent2 underline-offset-4 hover:underline"
+      >
+        Reconnaître le {caseInfo.nameFr.toLowerCase()} parmi les autres cas →
+      </Link>
+
       <div className="mt-10 sm:mt-14">
         <TriggerReference targetCase={caseInfo.id} color={caseInfo.color} />
       </div>

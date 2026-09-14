@@ -17,10 +17,28 @@ import {
   pickCaseExercise,
   type CaseTab,
 } from "@/lib/grammar/case-draw";
+import { caseAttemptBody, caseItemKey, describeCaseExercise } from "@/lib/grammar/case-attempt";
+import { diagnoseCaseAnswer } from "@/lib/grammar/diagnose";
+import { isTriggerMastered } from "@/lib/grammar/exercise-selector";
 import { BulbIcon } from "@/components/ui/icons";
 import PaywallNotice from "@/components/ui/PaywallNotice";
+import SpeakButton from "@/components/vocabulary/SpeakButton";
+import SeriesRecap from "@/components/exercises/SeriesRecap";
+import { shuffle } from "@/lib/exercises/types";
 import { usePracticeAttempt } from "@/lib/practice/attempt-client";
 import { rememberDraw } from "@/lib/practice/recent";
+import {
+  RETRY_GAP,
+  SERIES_LENGTH,
+  retriesLeft,
+  scheduleRetry,
+  spokenSentence,
+  takeAnyRetry,
+  takeDueRetry,
+  type RetryEntry,
+} from "@/lib/practice/retry";
+import type { SeriesMiss } from "@/lib/practice/use-practice-session";
+import { speakRu } from "@/lib/vocabulary/speech";
 import {
   CaseNumberMode,
   getCaseNumber,
@@ -37,6 +55,10 @@ type Feedback = {
   exercise: CaseExercise;
   picked?: string;
   reason?: string | null;
+  /** Un rattrapage : corrigé à l'écran, ni enregistré ni décompté. */
+  retry: boolean;
+  /** Raté, et programmé pour revenir pendant la séance. */
+  willReturn: boolean;
 } | null;
 type TriggerStats = Record<string, { attempts: number; correct: number }>;
 type CaseAccuracy = Record<string, number>; // clé = `${caseId}:${gender}`
@@ -68,7 +90,7 @@ const TAB_LABEL: Record<Tab, { full: string; short: string }> = {
  * exercice au pluriel : ni « стола́ми », ni « детьми́ », ni « друзья́ми »,
  * les formes mêmes pour lesquelles on ouvre une grammaire.
  *
- * « Mélange » par défaut : c'est ce qu'on rencontre en lisant, et le
+ * « Mélange » par défaut : c'est ce qu'on rencontre en lisant, et le
  * contraste singulier/pluriel est justement ce qui s'apprend. Les deux
  * autres servent à travailler un nombre qu'on rate.
  */
@@ -162,6 +184,24 @@ export default function CaseDeclension({
   // serveur, donc la vérification de la réponse est inchangée.
   const pool = useMemo(() => nounsForLevel(userLevel), [userLevel]);
   const [caseAccuracy, setCaseAccuracy] = useState<CaseAccuracy>({});
+
+  // LA SÉANCE : série de dix, rattrapage des erreurs. Même règles que les
+  // autres modules (lib/practice/retry.ts) ; tenues ici plutôt que par
+  // `usePracticeSession` parce que ce module a ses onglets, sa saisie
+  // optimiste et sa seconde lecture IA, que le hook commun n'a pas à
+  // connaître.
+  const [isRetry, setIsRetry] = useState(false);
+  const [retryAttempts, setRetryAttempts] = useState(0);
+  const [retryShown, setRetryShown] = useState(0);
+  const [served, setServed] = useState(0);
+  const [queue, setQueue] = useState<RetryEntry<CaseExercise>[]>([]);
+  const [answered, setAnswered] = useState(0);
+  const [firstTry, setFirstTry] = useState(0);
+  const [misses, setMisses] = useState<SeriesMiss[]>([]);
+  const [showRecap, setShowRecap] = useState(false);
+  const [redo, setRedo] = useState(false);
+  const [hintShown, setHintShown] = useState(false);
+
   // Le plafond de pratique du plan gratuit. `blocked` remplace la carte
   // par l'écran d'abonnement ; `stopHere` l'anticipe d'un exercice pour ne
   // pas faire répondre à un exercice qui allait être refusé.
@@ -218,11 +258,13 @@ export default function CaseDeclension({
     // Le tirage est synchrone, mais le résultat reste appliqué au retour
     // d'une promesse : appeler setState dans le corps d'un effet déclenche
     // une cascade de rendus, et la règle react-hooks/set-state-in-effect
-    // l'interdit. Voir la note de PracticeRunner, qui fait de même.
+    // l'interdit.
     Promise.resolve(
       buildExercise(tab, caseInfo, triggerStats, userLevel, pool, numberMode),
     ).then((ex) => {
-      if (!cancelled) setExercise(ex);
+      if (cancelled) return;
+      setExercise(ex);
+      setServed((n) => n + 1);
     });
     return () => {
       cancelled = true;
@@ -233,29 +275,97 @@ export default function CaseDeclension({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, caseInfo.id, round, pool, numberMode]);
 
-  function nextExercise() {
-    if (stopHere()) return;
+  function resetCard() {
     setFeedback(null);
     setInput("");
     setVerifying(false);
+    setHintShown(false);
+  }
+
+  function drawNext() {
+    resetCard();
+    setIsRetry(false);
     setExercise(null);
     setRound((r) => r + 1);
   }
 
+  function serveRetry(entry: RetryEntry<CaseExercise>, rest: RetryEntry<CaseExercise>[]) {
+    resetCard();
+    setQueue(rest);
+    // Les options d'un QCM sont remélangées : sinon on retrouverait la
+    // réponse à sa place, pas à sa forme.
+    setExercise(
+      entry.item.options ? { ...entry.item, options: shuffle(entry.item.options, Math.random) } : entry.item,
+    );
+    setIsRetry(true);
+    setRetryAttempts(entry.attempts + 1);
+    setRetryShown((n) => n + 1);
+    setServed((n) => n + 1);
+  }
+
+  function startSeries() {
+    setAnswered(0);
+    setFirstTry(0);
+    setMisses([]);
+  }
+
+  function nextExercise() {
+    if (!redo && answered >= SERIES_LENGTH) {
+      setShowRecap(true);
+      return;
+    }
+    // Jamais deux rattrapages d'affilée hors de « Refaire » : sinon quelques
+    // erreurs reprogrammées se relaient et la série n'avance plus.
+    const due = redo ? takeAnyRetry(queue) : isRetry ? null : takeDueRetry(queue, served);
+    if (due) {
+      serveRetry(due.entry, due.rest);
+      return;
+    }
+    if (redo) {
+      setRedo(false);
+      startSeries();
+    }
+    if (stopHere()) return;
+    drawNext();
+  }
+
+  function continueSeries() {
+    setShowRecap(false);
+    startSeries();
+    const due = takeDueRetry(queue, served);
+    if (due) {
+      serveRetry(due.entry, due.rest);
+      return;
+    }
+    if (stopHere()) return;
+    drawNext();
+  }
+
+  function redoMisses() {
+    setShowRecap(false);
+    const first = takeAnyRetry(queue);
+    if (!first) {
+      startSeries();
+      drawNext();
+      return;
+    }
+    setRedo(true);
+    serveRetry(first.entry, first.rest);
+  }
+
   function selectNumber(next: CaseNumberMode) {
     if (next === numberMode) return;
-    setFeedback(null);
-    setInput("");
-    setVerifying(false);
+    resetCard();
+    setIsRetry(false);
     setExercise(null);
     setCaseNumber(next);
   }
 
   function selectTab(next: Tab) {
     if (next === tab) return;
-    setFeedback(null);
-    setInput("");
-    setVerifying(false);
+    resetCard();
+    setIsRetry(false);
+    setShowRecap(false);
     setExercise(null);
     setTab(next);
   }
@@ -273,6 +383,14 @@ export default function CaseDeclension({
     if (!exercise) return;
     const { revealed = false, optimistic = false, multipleChoice = false } = options;
 
+    // UN RATTRAPAGE SE CORRIGE ICI : la bonne forme vient d'être montrée, et
+    // l'enregistrer compterait deux fois le même exercice (voir
+    // lib/practice/retry.ts).
+    if (isRetry) {
+      applyVerdict(!revealed && checkAnswer(exercise, userAnswer), revealed, userAnswer, null);
+      return;
+    }
+
     if (optimistic) {
       // La comparaison locale a déjà dit "juste"et le serveur applique le
       // même calcul sur les mêmes données : afficher tout de suite évite
@@ -282,24 +400,9 @@ export default function CaseDeclension({
       setVerifying(true);
     }
 
-    const outcome = await postAttempt({
-      targetCase: exercise.targetCase,
-      nounId: exercise.noun.id,
-      // L'ADJECTIF EST ENVOYÉ PAR SON IDENTIFIANT, comme le nom, et le
-      // serveur recompose le groupe lui-même. Envoyer la forme attendue
-      // reviendrait à laisser le client dicter la bonne réponse.
-      adjectiveId: exercise.adjective?.id,
-      triggerId: exercise.trigger?.id,
-      plural: exercise.plural,
-      userAnswer,
-      revealed,
-      // Contexte de la seconde lecture IA uniquement : le verdict, lui, est
-      // recalculé côté serveur à partir du nom, du cas et du nombre.
-      sentence: exercise.sentenceTemplate,
-      // En QCM, la réponse est une des formes proposées : inutile de payer
-      // une vérification IA pour un choix qu'on sait faux.
-      multipleChoice,
-    });
+    const outcome = await postAttempt(
+      caseAttemptBody(exercise, userAnswer, { revealed, multipleChoice }),
+    );
     setVerifying(false);
 
     // Plafond atteint. Le hook a déjà basculé l'écran sur l'abonnement, qui
@@ -336,13 +439,49 @@ export default function CaseDeclension({
     reason: string | null | undefined,
   ) {
     if (!exercise) return;
+    const failed = revealed || !isCorrect;
+    const again = failed && (!isRetry || retriesLeft(retryAttempts));
     setFeedback({
       status: revealed ? "revealed" : isCorrect ? "correct" : "incorrect",
       exercise,
       picked,
       reason,
+      retry: isRetry,
+      willReturn: again,
     });
-    setStreak((s) => (isCorrect && !revealed ? s + 1 : 0));
+    setStreak((s) => (failed ? 0 : s + 1));
+
+    const key = caseItemKey(exercise);
+    if (isRetry) {
+      if (!failed) {
+        setMisses((list) => list.map((m) => (m.itemId === key ? { ...m, recovered: true } : m)));
+      } else if (again) {
+        setQueue((q) => scheduleRetry(q, key, exercise, served, retryAttempts));
+      }
+      // Rien d'enregistré : le poids local du déclencheur ne bouge pas non plus.
+      return;
+    }
+
+    setAnswered((n) => n + 1);
+    if (failed) {
+      setMisses((list) =>
+        list.some((m) => m.itemId === key)
+          ? list
+          : [
+              ...list,
+              {
+                itemId: key,
+                label: describeCaseExercise(exercise),
+                answer: exercise.accentedForm ?? exercise.correctForm,
+                recovered: false,
+              },
+            ],
+      );
+      setQueue((q) => scheduleRetry(q, key, exercise, served));
+    } else {
+      setFirstTry((n) => n + 1);
+    }
+
     // Le déclencheur vient d'être pratiqué : on met à jour le poids local
     // pour que le tirage suivant en tienne compte sans attendre un
     // rechargement de la progression serveur.
@@ -414,6 +553,34 @@ export default function CaseDeclension({
     ? null
     : (exercise.promptRu ?? exercise.noun.forms.singular[0]);
 
+  // L'INDICE S'EFFACE QUAND IL N'EST PLUS NÉCESSAIRE. La pastille
+  // « Déclencheur » dit d'avance quel mot impose le cas. Utile tant qu'on
+  // apprend à le repérer ; une fois le déclencheur maîtrisé (même définition
+  // que le tirage), elle fait le travail à la place de l'apprenant. Elle
+  // passe alors derrière un bouton, et revient avec la correction.
+  const triggerHidden =
+    Boolean(exercise?.trigger) &&
+    !feedback &&
+    !hintShown &&
+    isTriggerMastered(exercise?.trigger ? triggerStats[exercise.trigger.id] : undefined);
+
+  // Ce que la réponse fausse EST : une autre case du tableau, l'autre
+  // nombre, la règle appliquée à un mot qui y échappe. Voir diagnose.ts.
+  const diagnosis =
+    feedback?.status === "incorrect" && feedback.picked
+      ? diagnoseCaseAnswer(feedback.exercise, feedback.picked)
+      : null;
+
+  const spoken = !feedback || !exercise
+    ? null
+    : spokenSentence(
+        isSentenceLike ? exercise.sentenceTemplate : undefined,
+        exercise.accentedForm ?? exercise.correctForm,
+      );
+
+  const endOfSeries = !isRetry && answered >= SERIES_LENGTH;
+  const nextLabel = endOfSeries ? "Voir le bilan →" : "Suivant →";
+
   if (!signedIn) return <VisitorCard caseInfo={caseInfo} />;
 
   if (blocked) {
@@ -433,13 +600,20 @@ export default function CaseDeclension({
     >
       {/* En-tête */}
       <div
-        className="flex items-center justify-between gap-3 px-5 py-3 text-white sm:px-6 sm:py-3.5"
+        className="relative flex items-center justify-between gap-3 px-5 py-3 text-white sm:px-6 sm:py-3.5"
         style={{ background: caseInfo.color }}
       >
         <span className="min-w-0 truncate font-display text-[13px] font-semibold uppercase tracking-wide sm:text-sm">
           {caseInfo.nameRu} · {caseInfo.question}
         </span>
-        <span className="shrink-0 font-display text-xs font-bold">Série : {streak}</span>
+        <span className="shrink-0 font-display text-xs font-bold">
+          {Math.min(answered, SERIES_LENGTH)}/{SERIES_LENGTH} · Série : {streak}
+        </span>
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-[3px] origin-left bg-white/60 transition-transform duration-300"
+          style={{ transform: `scaleX(${Math.min(answered, SERIES_LENGTH) / SERIES_LENGTH})` }}
+        />
       </div>
 
       {/* Sélecteur de mode */}
@@ -477,22 +651,49 @@ export default function CaseDeclension({
       </div>
 
       <div className="p-5 sm:p-7">
-        {!exercise ? (
+        {showRecap ? (
+          <SeriesRecap
+            correct={firstTry}
+            total={answered}
+            misses={misses}
+            pending={queue.length}
+            exhausted={false}
+            onContinue={continueSeries}
+            onRedo={redoMisses}
+          />
+        ) : !exercise ? (
           <ExerciseSkeleton />
         ) : (
-          <div key={`${tab}-${round}`} className="animate-fade-in">
-            {exercise.trigger && (
-              // `inline-flex` sans `flex-wrap` : la pastille prenait la
-              // largeur de son contenu, quelle qu'elle soit. Un déclencheur
-              // au sens long (« qui exprime l'absence de ») la poussait
-              // au-delà du cadre, où `overflow-hidden` la coupait net.
-              // Elle plie maintenant sur deux lignes — d'où `rounded-2xl`
-              // sous sm, une gélule à deux rangs n'ayant pas de sens.
-              <p className="mb-3 inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-2xl bg-bg3 px-3 py-1 font-display text-xs font-semibold text-muted sm:rounded-full">
-                Déclencheur :<span style={{ color: caseInfo.color }}>{exercise.trigger.ru}</span>
-                <span className="font-normal">— {exercise.trigger.meaningFr}</span>
+          <div key={`${tab}-${round}-${retryShown}`} className="animate-fade-in">
+            {isRetry && (
+              <p className="mb-3 inline-flex items-center rounded-full border border-accent2/40 bg-accent2/10 px-3 py-1 font-display text-xs font-semibold text-accent2">
+                À refaire — tu l&apos;as manqué il y a quelques exercices
               </p>
             )}
+
+            {exercise.trigger &&
+              (triggerHidden ? (
+                <button
+                  type="button"
+                  onClick={() => setHintShown(true)}
+                  title="Tu maîtrises ce déclencheur : repère-le toi-même dans la phrase"
+                  className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1 font-display text-xs font-semibold text-muted transition-colors hover:border-accent2/40 hover:text-accent2"
+                >
+                  <BulbIcon className="h-3.5 w-3.5" />
+                  Indice : ce qui impose le cas
+                </button>
+              ) : (
+                // `inline-flex` sans `flex-wrap` : la pastille prenait la
+                // largeur de son contenu, quelle qu'elle soit. Un déclencheur
+                // au sens long (« qui exprime l'absence de ») la poussait
+                // au-delà du cadre, où `overflow-hidden` la coupait net.
+                // Elle plie maintenant sur deux lignes — d'où `rounded-2xl`
+                // sous sm, une gélule à deux rangs n'ayant pas de sens.
+                <p className="mb-3 inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-2xl bg-bg3 px-3 py-1 font-display text-xs font-semibold text-muted sm:rounded-full">
+                  Déclencheur :<span style={{ color: caseInfo.color }}>{exercise.trigger.ru}</span>
+                  <span className="font-normal">— {exercise.trigger.meaningFr}</span>
+                </p>
+              ))}
 
             {exercise.kind === "isolated" && (
               <div className="mb-6">
@@ -593,9 +794,9 @@ export default function CaseDeclension({
                 {feedback ? (
                   <button
                     onClick={nextExercise}
-                    className="btn btn-primary btn-sheen rounded-[10px] bg-bg3 px-6 py-3 font-display text-sm text-text transition-colors"
+                    className="btn btn-primary btn-sheen rounded-[10px] px-6 py-3 font-display text-sm"
                   >
-                    Suivant →
+                    {nextLabel}
                   </button>
                 ) : (
                   <button
@@ -623,9 +824,10 @@ export default function CaseDeclension({
             {isMcq && feedback && (
               <button
                 onClick={nextExercise}
-                className="btn btn-primary btn-sheen mt-4 rounded-[10px] bg-bg3 px-6 py-3 font-display text-sm text-text transition-colors"
+                autoFocus
+                className="btn btn-primary btn-sheen mt-4 rounded-[10px] px-6 py-3 font-display text-sm"
               >
-                Suivant →
+                {nextLabel}
               </button>
             )}
 
@@ -654,6 +856,9 @@ export default function CaseDeclension({
                 <p className="mt-1 font-display text-xl font-bold">
                   {exercise.accentedForm ?? exercise.correctForm}
                 </p>
+                {diagnosis && (
+                  <p className="mt-2 font-display text-sm leading-relaxed text-text">{diagnosis}</p>
+                )}
                 <p className="mt-1 font-display text-sm text-muted">{exercise.ruleApplied}</p>
                 {/* La seconde forme du dictionnaire. Elle est acceptée comme
                     réponse ; la montrer, c'est transformer un « faux » évité
@@ -668,6 +873,30 @@ export default function CaseDeclension({
                 )}
                 {feedback.reason && (
                   <p className="mt-2 font-display text-sm text-muted">{feedback.reason}</p>
+                )}
+                {feedback.status === "correct" && feedback.retry && (
+                  <p className="mt-2 font-display text-xs leading-relaxed text-muted">
+                    Rattrapé. Un rattrapage est corrigé ici, sans compter dans ta progression.
+                  </p>
+                )}
+                {feedback.status !== "correct" && (
+                  <p className="mt-2 font-display text-xs leading-relaxed text-muted">
+                    {feedback.willReturn
+                      ? feedback.retry
+                        ? `Encore manqué : il reviendra dans ${RETRY_GAP} exercices.`
+                        : `Il reviendra dans ${RETRY_GAP} exercices, pour que tu retrouves la forme toi-même.`
+                      : "Encore manqué : il reste dans le bilan de la série, pour y revenir à tête reposée."}
+                  </p>
+                )}
+                {spoken && (
+                  <div className="mt-3">
+                    <SpeakButton
+                      text="Écouter"
+                      label="Écouter en russe"
+                      title="Écouter la forme dans sa phrase"
+                      onSpeak={() => speakRu(spoken)}
+                    />
+                  </div>
                 )}
               </div>
             )}

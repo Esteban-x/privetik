@@ -97,6 +97,19 @@ export default async function CasesPage() {
         pour toi{level ? ` (niveau ${level})` : ""}.
       </p>
 
+      <Link
+        href="/cases/melange"
+        className="group mb-8 -mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent2/40 bg-accent2/10 px-5 py-4 transition-colors hover:border-accent2/60"
+      >
+        <span className="min-w-0">
+          <span className="block font-display text-base font-bold">Cas mélangés</span>
+          <span className="block font-display text-sm text-muted">
+            Sans savoir d&apos;avance quel cas employer : c&apos;est ainsi qu&apos;on les rencontre en lisant.
+          </span>
+        </span>
+        <span className="font-display text-sm font-semibold text-accent2">S&apos;entraîner →</span>
+      </Link>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {CASES_BY_LEARNING_ORDER.map((c, index) => {
           const mastery = masteryByCase.get(c.id);
