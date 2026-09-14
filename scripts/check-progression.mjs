@@ -348,6 +348,70 @@ require_(
   "le sélecteur et l'estimation ne s'accordent pas sur ce qu'est un palier maîtrisé"
 );
 
+// ─── 5. Séance du jour ─────────────────────────────────────────────
+// Ce que la séance propose de travailler. Chaque règle a un coût visible :
+// une compétence faible jamais proposée reste faible, une compétence au-delà
+// du niveau décourage, un texte déjà lu ne rapporte plus rien.
+{
+  const D = await jiti.import("../lib/practice/daily-session.ts");
+  const R = await jiti.import("../lib/reading/texts.ts");
+  const expect = (label, got, want) => require_(got === want, `${label} : ${JSON.stringify(got)} au lieu de ${JSON.stringify(want)}`);
+  const stat = (attempts, correct, stale = false) => ({ attempts, correct, stale });
+
+  const fresh = D.pickFocusSkill({}, "A0");
+  expect("débutant : d'abord l'alphabet", fresh?.module.id, "alphabet");
+  expect("débutant : une compétence de A0", fresh?.skill.level, "A0");
+  expect("débutant : raison « prochaine »", fresh?.reason, "next");
+
+  const weak = D.pickFocusSkill(
+    { aspect: { past: stat(20, 9) }, cases: { genitive: stat(40, 26), dative: stat(12, 3) } },
+    "B1"
+  );
+  expect("la plus faible d'abord", `${weak?.module.id}:${weak?.skill.id}`, "cases:dative");
+  expect("précision affichée", weak?.accuracy, 25);
+  expect("lien de la compétence", weak?.href, "/cases/dative");
+
+  const stale = D.pickFocusSkill({ motion: { [MOTION.MOTION_SKILLS[0].id]: stat(30, 29, true) } }, "B1");
+  expect("maîtrise délaissée à rafraîchir", stale?.reason, "stale");
+  require_(
+    D.pickFocusSkill({ motion: { [MOTION.MOTION_SKILLS[0].id]: stat(5, 1) } }, "B1")?.reason === "next",
+    "cinq réponses ne suffisent pas à déclarer une compétence faible"
+  );
+
+  // Jamais au-delà du niveau suivant.
+  const LEVELS_ = ["A0", "A1", "A2", "B1", "B2", "C1", "C2"];
+  for (const level of LEVELS_) {
+    const pick = D.pickFocusSkill({}, level);
+    if (pick) {
+      require_(
+        LEVELS_.indexOf(pick.skill.level) <= Math.max(LEVELS_.indexOf(level), 0) + 1,
+        `niveau ${level} : « ${pick.skill.title} » (${pick.skill.level}) est hors de portée`
+      );
+    }
+  }
+
+  // Réponses du jour à la compétence ciblée.
+  const today = "2026-09-14T00:00:00.000Z";
+  const logged = [
+    { kind: "case", correct: true, created_at: "2026-09-14T08:00:00.000Z", meta: { caseId: "dative" } },
+    { kind: "case", correct: false, created_at: "2026-09-14T08:01:00.000Z", meta: { caseId: "dative" } },
+    { kind: "case", correct: true, created_at: "2026-09-13T08:00:00.000Z", meta: { caseId: "dative" } },
+    { kind: "case", correct: true, created_at: "2026-09-14T08:02:00.000Z", meta: { caseId: "genitive" } },
+    { kind: "aspect", correct: true, created_at: "2026-09-14T08:03:00.000Z", meta: { skill: "dative" } },
+  ];
+  expect("réponses du jour à la compétence", D.answeredToday(logged, weak, today), 2);
+  expect("kind des cas", D.activityKindOf("cases"), "case");
+  expect("kind des participes", D.activityKindOf("participles"), "participle");
+
+  // Lecture : du niveau d'abord, jamais un texte déjà lu.
+  const a2 = D.pickReadingText("A2", new Set());
+  expect("texte A2 pour un A2", a2?.level, "A2");
+  const allA2 = new Set(R.READING_TEXTS.filter((t) => t.level === "A2").map((t) => t.id));
+  const easier = D.pickReadingText("A2", allA2);
+  require_(easier && easier.level !== "A2" && !allA2.has(easier.id), "A2 lus : un autre niveau doit être proposé");
+  expect("tout lu : rien", D.pickReadingText("A2", new Set(R.READING_TEXTS.map((t) => t.id))), null);
+}
+
 // ─── Rapport ───────────────────────────────────────────────────────
 if (failures.length) {
   console.error(`\n✗ ${failures.length} problème(s) sur ${checks} contrôles :\n`);

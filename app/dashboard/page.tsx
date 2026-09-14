@@ -180,6 +180,29 @@ export default async function DashboardPage() {
         </h1>
       </div>
 
+      {/* Séance du jour : par où commencer */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-accent/35 bg-accent/10 p-6">
+        <div className="min-w-0">
+          <p className="font-display text-lg font-bold">Ta séance du jour</p>
+          <p className="mt-1 font-display text-sm leading-relaxed text-muted">
+            {[
+              vocabDue > 0 ? `${vocabDue} mot${vocabDue > 1 ? "s" : ""} à réviser` : null,
+              dueErrors > 0 ? `${dueErrors} erreur${dueErrors > 1 ? "s" : ""} à refaire` : null,
+              "une compétence ciblée",
+              "un texte",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+        <Link
+          href="/seance"
+          className="btn btn-primary btn-sheen shrink-0 rounded-[10px] px-5 py-2.5 font-display text-sm"
+        >
+          Commencer
+        </Link>
+      </div>
+
       {/* Cartes de stats */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Niveau testé" value={testedLevel} accent />
