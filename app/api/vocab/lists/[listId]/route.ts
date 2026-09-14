@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/api/validate";
 import { focusOf } from "@/lib/vocabulary/focus";
+import { newWordsAllowance } from "@/lib/vocabulary/new-words";
 
 // Détail d'une liste (mots + état SRS pour la reprise en carte). RLS filtre
 // déjà par propriétaire ; les .eq("id", listId) / .eq("list_id", listId)
@@ -58,17 +59,23 @@ export async function GET(
   }
 
   const wordIds = (words ?? []).map((w) => w.id);
-  const { data: srsRows } = wordIds.length
-    ? await supabase
-        .from("srs_cards")
-        .select("card_id, ease_factor, interval_days, repetitions, due_at, last_reviewed")
-        .in("card_id", wordIds)
-    : { data: [] };
+  const [{ data: srsRows }, newAllowance] = await Promise.all([
+    wordIds.length
+      ? supabase
+          .from("srs_cards")
+          .select("card_id, ease_factor, interval_days, repetitions, due_at, last_reviewed")
+          .in("card_id", wordIds)
+      : Promise.resolve({ data: [] as { card_id: string; ease_factor: number; interval_days: number; repetitions: number; due_at: string; last_reviewed: string | null }[] }),
+    newWordsAllowance(supabase, user.id),
+  ]);
 
   const srsByCardId = new Map((srsRows ?? []).map((r) => [r.card_id, r]));
 
   return NextResponse.json({
     list: { id: list.id, name: list.name, createdAt: list.created_at },
+    // La limite de nouveaux mots du jour : la file de révision de cette liste
+    // la respecte (voir lib/vocabulary/new-words.ts).
+    newAllowance,
     words: (words ?? []).map((w) => {
       const srs = srsByCardId.get(w.id);
       return {

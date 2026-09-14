@@ -853,6 +853,77 @@ for (const text of T.READING_TEXTS) {
   require_(prompt.includes("Я иду в школу.") && prompt.includes("position 3") && prompt.includes("Accusatif"), "prompt des cas : la phrase, la position ou le cas annoncé manque");
 }
 
+// ─── 14. La file de révision : les révisions avant les nouveaux mots ──
+// Cinquante mots ajoutés d'un coup passaient devant tout ce qu'on avait
+// appris la veille. La file sert maintenant les mots « à travailler », puis
+// les mots déjà vus et échus, puis les nouveaux dans la limite du jour — et
+// son décompte dit exactement ce qu'elle servira.
+{
+  const expect = (label, got, want) =>
+    require_(got === want, `${label} : « ${got} » au lieu de « ${want} »`);
+  const F = await jiti.import("../lib/vocabulary/focus.ts");
+  const now = Date.now();
+  const seen = (id, dueIn, reps = 2) => ({ id, focus: "normal", srs: { repetitions: reps, easeFactor: 2.5, dueAt: now + dueIn } });
+  const fresh = (id) => ({ id, focus: "normal", srs: null });
+  const words = [
+    fresh("n1"), fresh("n2"), fresh("n3"),
+    seen("due1", -1000), seen("later", 86400000),
+    { id: "star", focus: "priority", srs: null },
+    { id: "gone", focus: "known", srs: null },
+  ];
+  const ids = (list) => list.map((w) => w.id).join(",");
+
+  expect("file : sans limite", ids(F.reviewQueue(words, now)), "star,due1,n1,n2,n3");
+  expect("file : deux nouveaux permis", ids(F.reviewQueue(words, now, 2)), "star,due1,n1,n2");
+  expect("file : aucun nouveau permis", ids(F.reviewQueue(words, now, 0)), "star,due1");
+  expect(
+    "file : rien d'échu ni de nouveau permis → révision en avance, sans les nouveaux",
+    ids(F.reviewQueue([fresh("n1"), seen("later", 86400000)], now, 0)),
+    "later"
+  );
+  const counts = F.countFocus(words, now, 2);
+  expect("décompte : dû = file servie", counts.due, F.reviewQueue(words, now, 2).length);
+  expect("décompte : nouveaux en attente", counts.newWaiting, 1);
+  expect("décompte : sans limite, rien n'attend", F.countFocus(words, now).newWaiting, 0);
+}
+
+// ─── 15. Les paquets de départ ─────────────────────────────────────
+// Un paquet entre tel quel dans les révisions : chaque mot doit être
+// accentué, traduit, unique dans le paquet, et le paquet assez fourni pour
+// valoir une liste.
+{
+  const expect = (label, got, want) =>
+    require_(got === want, `${label} : « ${got} » au lieu de « ${want} »`);
+  const { STARTER_PACKS, packWords, packSummary } = await jiti.import("../lib/vocabulary/packs.ts");
+  const packIds = new Set();
+  for (const pack of STARTER_PACKS) {
+    require_(!packIds.has(pack.id), `paquet ${pack.id} : identifiant en double`);
+    packIds.add(pack.id);
+    const entries = packWords(pack);
+    // Douze au moins : c'est ce que la banque porte d'animaux, et un paquet
+    // plus mince ne vaudrait pas une liste à part.
+    require_(entries.length >= 12, `paquet ${pack.id} : seulement ${entries.length} mots`);
+    const keys = new Set();
+    for (const word of entries) {
+      const key = wordKey(word.ru);
+      require_(!keys.has(key), `paquet ${pack.id} : « ${word.ru} » en double`);
+      keys.add(key);
+      require_(word.fr.trim().length > 0, `paquet ${pack.id} : « ${word.ru} » sans traduction`);
+      const vowels = [...stripStress(word.ru)].filter((c) => "аеёиоуыэюя".includes(c)).length;
+      // Le ё porte toujours l'accent : « ребёнок » n'a pas besoin d'un signe de plus.
+      require_(
+        vowels < 2 || hasStress(word.ru) || word.ru.includes("ё"),
+        `paquet ${pack.id} : « ${word.ru} » n'est pas accentué`
+      );
+    }
+    const summary = packSummary(pack);
+    require_(summary.count === entries.length && summary.preview.length > 0, `paquet ${pack.id} : résumé incohérent`);
+  }
+  // Les paquets de fréquence se suivent sans se chevaucher.
+  const frequent = STARTER_PACKS.filter((p) => p.id.startsWith("frequents-")).flatMap((p) => p.nouns.map((n) => n.id));
+  expect("paquets de fréquence : aucun mot dans deux paquets", new Set(frequent).size, frequent.length);
+}
+
 // ─── Rapport ───────────────────────────────────────────────────────
 
 if (failures.length) {

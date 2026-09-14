@@ -28,6 +28,7 @@ import AllKnownState from "@/components/vocabulary/AllKnownState";
 import FocusControl from "@/components/vocabulary/FocusControl";
 import NoWordsState from "@/components/vocabulary/NoWordsState";
 import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
+import { NewWordsLimit, RelearnBadge } from "@/components/vocabulary/ReviewSessionExtras";
 import { ReviewSessionSkeleton } from "@/components/vocabulary/VocabularySkeletons";
 import { MicIcon, SpeakerIcon } from "@/components/ui/icons";
 
@@ -66,6 +67,9 @@ function VoiceInner() {
     allKnown,
     currentFocus,
     setFocus,
+    isRelearn,
+    newWaiting,
+    allowMoreNew,
   } = useReviewQueue(listId);
 
   const [daily, setDaily] = useState<{ reviewedToday: number; goal: number } | null>(null);
@@ -117,13 +121,20 @@ function VoiceInner() {
           backHref={backHref}
           backLabel={backLabel}
           onRestart={reload}
+          extra={<NewWordsLimit waiting={newWaiting} onMore={allowMoreNew} />}
         />
       </div>
     );
   }
 
   return (
-    <VoiceSession
+    <>
+      {isRelearn && (
+        <div className="mx-auto max-w-2xl px-6 pt-6 sm:pt-10">
+          <RelearnBadge />
+        </div>
+      )}
+      <VoiceSession
       word={current}
       direction={direction}
       onDirectionChange={changeDirection}
@@ -135,6 +146,7 @@ function VoiceInner() {
       backHref={backHref}
       backLabel={backLabel}
     />
+    </>
   );
 }
 

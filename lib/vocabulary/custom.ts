@@ -49,6 +49,10 @@ export function fetchDueWords(): Promise<{
   /** Mots mis de côté par l'apprenant — hors file, mais bien présents. */
   knownCount: number;
   totalWords: number;
+  /** Nouveaux mots encore permis aujourd'hui (voir lib/vocabulary/new-words.ts). */
+  newAllowance?: number;
+  /** Nouveaux mots que la limite du jour laisse pour demain. */
+  newWaiting?: number;
 }> {
   return fetch("/api/vocab/due").then((r) => json(r));
 }
@@ -119,9 +123,12 @@ export function deleteList(listId: string): Promise<{ ok: true }> {
   return fetch(`/api/vocab/lists/${listId}`, { method: "DELETE" }).then((r) => json(r));
 }
 
-export function fetchListDetail(
-  listId: string
-): Promise<{ list: { id: string; name: string }; words: CustomVocabWord[] }> {
+export function fetchListDetail(listId: string): Promise<{
+  list: { id: string; name: string };
+  words: CustomVocabWord[];
+  /** Nouveaux mots encore permis aujourd'hui (voir lib/vocabulary/new-words.ts). */
+  newAllowance?: number;
+}> {
   return fetch(`/api/vocab/lists/${listId}`).then((r) => json(r));
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { countFocus, type Reviewable } from "@/lib/vocabulary/focus";
+import { newWordsAllowance } from "@/lib/vocabulary/new-words";
 
 // Listes de vocabulaire personnelles (page /vocabulary). Protégées par
 // RLS (auth.uid() = user_id) : chaque requête ne voit que ses propres listes.
@@ -16,13 +17,16 @@ export async function GET() {
   // page ne montre plus seulement des noms de listes mais l'état de chacune
   // (combien de mots mis de côté, combien la file proposera), ce qui est
   // justement ce qui fait choisir par où commencer.
-  const [{ data, error }, { data: words }, { data: cards }] = await Promise.all([
+  const [{ data, error }, { data: words }, { data: cards }, allowance] = await Promise.all([
     supabase.from("vocab_lists").select("id, name, created_at").order("created_at", { ascending: true }),
     supabase.from("vocab_words").select("id, list_id, focus").eq("user_id", user.id),
     supabase
       .from("srs_cards")
       .select("card_id, repetitions, ease_factor, due_at")
       .eq("user_id", user.id),
+    // La limite de nouveaux mots est celle de l'apprenant, pas d'une liste :
+    // chaque badge dit ce que la liste proposerait si on l'ouvrait maintenant.
+    newWordsAllowance(supabase, user.id),
   ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -50,7 +54,7 @@ export async function GET() {
   }
 
   const lists = (data ?? []).map((l) => {
-    const stat = countFocus(byList.get(l.id) ?? [], now);
+    const stat = countFocus(byList.get(l.id) ?? [], now, allowance);
     return {
       id: l.id,
       name: l.name,

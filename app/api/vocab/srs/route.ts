@@ -77,7 +77,9 @@ export async function POST(req: Request) {
     user_id: user.id,
     kind: "vocab",
     correct,
-    meta: { cardId },
+    // `first` : le tout premier passage de ce mot — c'est ce que compte la
+    // limite de nouveaux mots par jour (lib/vocabulary/new-words.ts).
+    meta: existing ? { cardId } : { cardId, first: true },
   });
   await bumpStreakAndXp(supabase, user.id, correct ? 5 : 1);
 

@@ -8,6 +8,8 @@ interface Props {
   backHref: string;
   backLabel: string;
   onRestart?: () => void;
+  /** Ce qu'il y a encore à dire sous l'objectif — la limite de nouveaux mots atteinte. */
+  extra?: React.ReactNode;
 }
 
 // Écran de fin de session (façon Duolingo) : ce qui vient d'être fait +
@@ -22,6 +24,7 @@ export default function SessionSummary({
   backHref,
   backLabel,
   onRestart,
+  extra,
 }: Props) {
   const accuracy = reviewed > 0 ? Math.round((correct / reviewed) * 100) : 0;
   const goalPct = goal > 0 ? Math.min(100, Math.round((reviewedTodayTotal / goal) * 100)) : 0;
@@ -65,6 +68,8 @@ export default function SessionSummary({
           </p>
         )}
       </div>
+
+      {extra}
 
       <div className="mt-6 flex justify-center gap-2.5">
         {onRestart && (

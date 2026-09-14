@@ -14,6 +14,7 @@ import FocusControl from "@/components/vocabulary/FocusControl";
 import PronunciationRow from "@/components/vocabulary/PronunciationRow";
 import ReviewExplanation from "@/components/vocabulary/ReviewExplanation";
 import NoWordsState from "@/components/vocabulary/NoWordsState";
+import { NewWordsLimit, RelearnBadge } from "@/components/vocabulary/ReviewSessionExtras";
 import { ReviewSessionSkeleton } from "@/components/vocabulary/VocabularySkeletons";
 
 export default function FlashcardsPage() {
@@ -51,6 +52,9 @@ function FlashcardsInner() {
     allKnown,
     currentFocus,
     setFocus,
+    isRelearn,
+    newWaiting,
+    allowMoreNew,
   } = useReviewQueue(listId);
 
   const [daily, setDaily] = useState<{ reviewedToday: number; goal: number } | null>(null);
@@ -107,6 +111,7 @@ function FlashcardsInner() {
           backHref={backHref}
           backLabel={backLabel}
           onRestart={reload}
+          extra={<NewWordsLimit waiting={newWaiting} onMore={allowMoreNew} />}
         />
       </div>
     );
@@ -132,6 +137,8 @@ function FlashcardsInner() {
       <p className="mb-4 text-center font-display text-xs font-semibold uppercase tracking-wide text-muted">
         {current.theme} · carte {sessionIndex + 1}
       </p>
+
+      {isRelearn && <RelearnBadge />}
 
       {/* Le même sélecteur que sur la carte d'une liste, à la même place
           dans le geste : ce que l'apprenant décide ici vaut pour toutes les

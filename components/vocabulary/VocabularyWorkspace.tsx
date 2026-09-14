@@ -23,6 +23,7 @@ import { countFocus, FOCUS_META, type Focus } from "@/lib/vocabulary/focus";
 import AddWordForm from "@/components/vocabulary/AddWordForm";
 import EditWordForm, { type EditOutcome } from "@/components/vocabulary/EditWordForm";
 import ListRail, { ListTile } from "@/components/vocabulary/ListRail";
+import StarterPacks from "@/components/vocabulary/StarterPacks";
 import WordCard from "@/components/vocabulary/WordCard";
 import { ModeIcon, REVIEW_MODES } from "@/components/vocabulary/ReviewModeGrid";
 import {
@@ -72,6 +73,9 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [showPacks, setShowPacks] = useState(false);
+  /** Nouveaux mots encore permis aujourd'hui : les décomptes « à réviser » la respectent. */
+  const [newAllowance, setNewAllowance] = useState(Infinity);
 
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -208,6 +212,7 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
         if (cancelled) return;
         setNameDraft(d.list.name);
         setWords(d.words);
+        if (typeof d.newAllowance === "number") setNewAllowance(d.newAllowance);
       })
       .catch(() => {
         if (!cancelled) setWordsFailed(true);
@@ -258,7 +263,10 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
     );
   }, [lists]);
 
-  const stats = useMemo(() => (words ? countFocus(words) : null), [words]);
+  const stats = useMemo(
+    () => (words ? countFocus(words, undefined, newAllowance) : null),
+    [words, newAllowance],
+  );
 
   const visible = useMemo(() => {
     if (!words) return null;
@@ -285,7 +293,7 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
      * serveur — recompter est ici plus court que d'énumérer les cas.
      */
   function syncCounts(listId: string, nextWords: CustomVocabWord[]) {
-    const stat = countFocus(nextWords);
+    const stat = countFocus(nextWords, undefined, newAllowance);
     setLists((prev) =>
       prev
         ? prev.map((l) =>
@@ -301,6 +309,24 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
           )
         : prev,
     );
+  }
+
+  /**
+   * Un paquet de départ vient d'être ajouté : on ouvre sa liste et on relit
+   * tout, les décomptes compris — le serveur les calcule avec la limite du
+   * jour, le client n'a pas à les deviner.
+   */
+  function importedPack(list: VocabListSummary, added: number) {
+    setShowPacks(false);
+    closeCreate();
+    setNotice(
+      added > 0
+        ? `${added} mots ajoutés à « ${list.name} ». Dix nouveaux arrivent en révision chaque jour, les plus courants d'abord.`
+        : `« ${list.name} » contenait déjà tous les mots de ce paquet.`,
+    );
+    setActiveId(list.id);
+    setWordsAttempt((n) => n + 1);
+    setListsAttempt((n) => n + 1);
   }
 
   async function submitNewList(e: React.FormEvent) {
@@ -572,7 +598,7 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
               </>
             )
           ) : lists.length === 0 ? (
-            <EmptyState onCreate={() => setShowCreate(true)} />
+            <EmptyState onCreate={() => setShowCreate(true)} onImported={importedPack} />
           ) : !activeList ? (
             <div className="rounded-3xl surface p-16 text-center">
               <p className="font-display text-sm text-muted">
@@ -1047,6 +1073,19 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
             ))}
           </div>
 
+          {/* Qui ne sait pas encore quels mots apprendre n'a pas à les
+              chercher : la banque sait lesquels sont les plus courants. */}
+          <button
+            type="button"
+            onClick={() => {
+              closeCreate();
+              setShowPacks(true);
+            }}
+            className="mt-4 font-display text-sm font-semibold text-accent-ink underline-offset-4 hover:underline"
+          >
+            Ou partir d&apos;un paquet de mots tout prêt →
+          </button>
+
           <div className="mt-6 flex justify-end gap-2 border-t border-border pt-5">
             <button
               type="button"
@@ -1064,6 +1103,15 @@ export default function VocabularyWorkspace({ initialListId }: { initialListId?:
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={showPacks}
+        onClose={() => setShowPacks(false)}
+        title="Paquets de départ"
+        description="Des listes toutes faites, à compléter ensuite avec tes propres mots."
+      >
+        <StarterPacks onImported={importedPack} />
       </Modal>
     </div>
   );
@@ -1172,9 +1220,15 @@ function LoadFailure({
   );
 }
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyState({
+  onCreate,
+  onImported,
+}: {
+  onCreate: () => void;
+  onImported: (list: VocabListSummary, added: number) => void;
+}) {
   return (
-    <div className="rounded-3xl border border-dashed border-border bg-bg2 p-14 text-center">
+    <div className="rounded-3xl border border-dashed border-border bg-bg2 p-6 text-center sm:p-14">
       <p className="font-display text-lg font-bold">Commence ton vocabulaire</p>
       <p className="mx-auto mt-2 max-w-md font-display text-sm leading-relaxed text-muted">
         Crée une liste, tape un mot russe : sa traduction, sa translittération et son accent tonique
@@ -1186,6 +1240,15 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       >
         Créer ma première liste
       </button>
+
+      {/* PAR QUOI COMMENCER. Une page vide demande de savoir quels mots
+          valent la peine d'être appris ; la banque le sait, elle. */}
+      <div className="mt-10 border-t border-border pt-8 text-left">
+        <p className="font-display text-base font-bold">Ou pars d&apos;un paquet tout prêt</p>
+        <div className="mt-3">
+          <StarterPacks onImported={onImported} />
+        </div>
+      </div>
     </div>
   );
 }
