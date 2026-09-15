@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import SkillPageShell from "@/components/exercises/SkillPageShell";
 import NumbersPractice from "@/components/numbers/NumbersPractice";
+import { lessonForPractice } from "@/lib/courses/practice-lessons";
 import { getNumberSkill, NUMBER_SKILLS } from "@/lib/numbers/exercises";
 import { skillColor } from "@/lib/exercises/colors";
 
@@ -46,7 +47,11 @@ export default async function NumberSkillPage({
       backLabel="Nombres, heure et dates"
       lesson={LESSONS[info.id]}
     >
-      <NumbersPractice skill={info.id} color={skillColor("numbers", info.id)} />
+      <NumbersPractice
+        skill={info.id}
+        color={skillColor("numbers", info.id)}
+        lesson={lessonForPractice(`/numbers/${info.id}`)}
+      />
     </SkillPageShell>
   );
 }

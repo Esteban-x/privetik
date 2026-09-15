@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { findLesson, LESSONS, neighbours } from "@/lib/courses/catalog";
 import LessonBody, { sectionAnchor } from "@/components/courses/LessonBody";
-import { LessonReadToggle, ReadingProgress } from "@/components/courses/LessonTools";
+import { LessonReadBadge, LessonReadToggle, ReadingProgress } from "@/components/courses/LessonTools";
+import { TargetIcon } from "@/components/ui/icons";
 import LessonQuiz from "@/components/courses/LessonQuiz";
 import { buildLessonQuiz } from "@/lib/courses/quiz";
 import { LevelChip } from "@/components/courses/CourseExplorer";
@@ -134,7 +135,7 @@ export default async function LessonPage({ params }: { params: Promise<{ slug: s
               </p>
 
               <div className="mt-6 flex flex-wrap items-center gap-2.5">
-                <LessonReadToggle slug={lesson.slug} />
+                <LessonReadBadge slug={lesson.slug} />
                 {lesson.practice?.map((link) => (
                   <Link
                     key={link.href}
@@ -153,27 +154,63 @@ export default async function LessonPage({ params }: { params: Promise<{ slug: s
             {/* ── Se tester avant de cocher ─────────────────────── */}
             {quiz.length > 0 && <LessonQuiz slug={lesson.slug} questions={quiz} />}
 
+            {/* ── Cocher la leçon, une fois lue ────────────────── */}
+            {/* EN BAS, PAS EN TÊTE. On coche une leçon après l'avoir lue : sous
+                le titre, la coche se présentait avant la première ligne, et il
+                fallait remonter toute la page pour la trouver une fois arrivé
+                au bout. La tête garde le rappel « Leçon lue » quand elle l'est. */}
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl surface px-5 py-4">
+              <p className="font-display text-sm text-muted">Arrivé au bout de la leçon&nbsp;?</p>
+              <LessonReadToggle slug={lesson.slug} />
+            </div>
+
             {/* ── Aller travailler ce qu'on vient de lire ──────── */}
+            {/* UN APPEL, PAS UNE NOTE DE BAS DE PAGE. C'était un encadré pâle
+                aux liens discrets : on finissait la leçon sans voir qu'un
+                exercice l'attendait. Pas de `.btn` pour les liens : il interdit
+                le retour à la ligne, et « Exercice : ce qu'on entend vraiment »
+                déborderait d'un écran de téléphone. */}
             {lesson.practice && lesson.practice.length > 0 && (
-              <div className="mt-12 rounded-3xl border border-accent/30 bg-accent/5 px-6 py-6">
-                <p className="mb-1 font-display text-sm font-bold">Maintenant, pratique</p>
-                <p className="mb-4 font-display text-sm leading-relaxed text-muted">
-                  Une règle lue s&apos;oublie ; une règle appliquée vingt fois reste. Ces exercices
-                  portent exactement sur ce que cette leçon vient d&apos;expliquer.
-                </p>
-                <div className="flex flex-wrap gap-2.5">
+              <section
+                aria-labelledby="practice-now"
+                className="relative mt-6 overflow-hidden rounded-3xl border border-accent/40 bg-accent/10 px-6 py-7 sm:px-8"
+              >
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-accent/20 blur-3xl"
+                />
+                <div className="relative flex items-start gap-4">
+                  <span
+                    aria-hidden
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-float"
+                    style={{ backgroundImage: "var(--grad-accent)" }}
+                  >
+                    <TargetIcon className="h-6 w-6" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 id="practice-now" className="font-display text-xl font-extrabold tracking-tight sm:text-2xl">
+                      Maintenant, pratique
+                    </h2>
+                    <p className="mt-1 max-w-xl font-display text-sm leading-relaxed text-muted">
+                      Une règle lue s&apos;oublie ; une règle appliquée vingt fois reste. Ces exercices
+                      portent exactement sur ce que cette leçon vient d&apos;expliquer.
+                    </p>
+                  </div>
+                </div>
+                <div className="relative mt-5 flex flex-wrap gap-3">
                   {lesson.practice.map((link) => (
                     <Link
                       key={link.href}
                       href={link.href}
-                      className="inline-flex items-center gap-2 rounded-xl surface-interactive px-4 py-2.5 font-display text-sm font-semibold hover:text-accent-ink"
+                      className="inline-flex max-w-full items-center gap-2 rounded-xl px-5 py-3 font-display text-sm font-bold text-white shadow-float transition-[filter,transform] duration-200 hover:-translate-y-0.5 hover:brightness-110"
+                      style={{ backgroundImage: "var(--grad-accent)" }}
                     >
-                      {link.label}
+                      <span className="min-w-0">{link.label}</span>
                       <span aria-hidden>→</span>
                     </Link>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
 
             {/* ── Leçon précédente / suivante ──────────────────── */}

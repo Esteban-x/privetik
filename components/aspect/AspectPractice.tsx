@@ -1,7 +1,8 @@
 "use client";
 
 import { drawFresh } from "@/lib/practice/recent";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { usePracticeSession } from "@/lib/practice/use-practice-session";
 import PracticeCard, { describeSentence } from "@/components/exercises/PracticeCard";
 import TimelineDiagram from "./TimelineDiagram";
@@ -15,9 +16,12 @@ import {
 export default function AspectPractice({
   skill,
   color,
+  lesson = null,
 }: {
   skill: AspectSkillId;
   color: string;
+  /** La leçon à revoir après une erreur — voir lib/courses/practice-lessons.ts. */
+  lesson?: LessonLink | null;
 }) {
   const key = `aspect:${skill}`;
   const session = usePracticeSession<AspectExercise>({
@@ -38,6 +42,8 @@ export default function AspectPractice({
       session={session}
       paywallWhat="les exercices d'aspect"
       spoken={(ex) => spokenSentence(ex.sentence, ex.options[ex.correctIndex])}
+      prompt={(ex) => spokenGap(ex.sentence)}
+      lesson={() => lesson}
       skeleton={
         <div className="animate-fade-in space-y-4">
           <div className="skeleton h-4 w-48 rounded-full" />

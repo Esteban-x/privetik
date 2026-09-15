@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { PendingError } from "@/lib/practice/errors";
 import { usePracticeSession, type ChoiceExercise } from "@/lib/practice/use-practice-session";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import type { PracticeExercise } from "@/lib/exercises/types";
 import { rebuildAspectExercise, type AspectExercise } from "@/lib/aspect/exercises";
 import { rebuildMotionExercise, type MotionExercise } from "@/lib/motion/exercises";
@@ -137,7 +138,12 @@ type Load =
   | { status: "failed" }
   | { status: "ready"; items: ErrorItem[]; due: number };
 
-export default function ErrorsPractice() {
+export default function ErrorsPractice({
+  lessons = {},
+}: {
+  /** La leçon à revoir, par page d'exercices — voir lib/courses/practice-lessons.ts. */
+  lessons?: Record<string, LessonLink>;
+}) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
 
   useEffect(() => {
@@ -196,12 +202,18 @@ export default function ErrorsPractice() {
           : ""}
         .
       </p>
-      <ErrorsSession items={load.items} />
+      <ErrorsSession items={load.items} lessons={lessons} />
     </>
   );
 }
 
-function ErrorsSession({ items }: { items: ErrorItem[] }) {
+function ErrorsSession({
+  items,
+  lessons,
+}: {
+  items: ErrorItem[];
+  lessons: Record<string, LessonLink>;
+}) {
   const session = usePracticeSession<ErrorItem>({
     sessionKey: "errors",
     endpoint: "/api/exercises/attempt",
@@ -224,6 +236,8 @@ function ErrorsSession({ items }: { items: ErrorItem[] }) {
       showErrorsLink={false}
       answerMode={(item) => (item.source.module === "cases" ? "typing" : "choice")}
       spoken={(item) => spokenFor(item)}
+      prompt={(item) => promptFor(item)}
+      lesson={(item) => lessons[practiceHref(item)] ?? null}
       renderQuestion={(item) => <ErrorQuestion item={item} />}
       recapFooter={
         <p className="mt-4 font-display text-xs leading-relaxed text-muted">
@@ -309,6 +323,38 @@ function spokenFor(item: ErrorItem): string | null {
       return spokenSentence(source.exercise.question, answer);
     default:
       return spokenSentence(source.exercise.sentence, answer);
+  }
+}
+
+/** La phrase à trou de l'erreur, à écouter avant de répondre — voir `spokenGap`. */
+function promptFor(item: ErrorItem): string | null {
+  const source = item.source;
+  switch (source.module) {
+    case "cases":
+      return spokenGap(source.exercise.sentenceTemplate);
+    case "participles":
+      return spokenGap(source.exercise.compressed || undefined);
+    case "numbers":
+    case "conjugation":
+    case "alphabet":
+      return source.exercise.audio ? null : spokenGap(source.exercise.question);
+    default:
+      return spokenGap(source.exercise.sentence);
+  }
+}
+
+/** La page d'exercices dont vient l'erreur : c'est elle qui désigne la leçon à revoir. */
+function practiceHref(item: ErrorItem): string {
+  const source = item.source;
+  switch (source.module) {
+    case "cases":
+      return `/cases/${source.exercise.targetCase}`;
+    case "numbers":
+    case "conjugation":
+    case "alphabet":
+      return `/${source.module}/${skillOf(item.itemId)}`;
+    default:
+      return `/${source.module}/${source.exercise.skill}`;
   }
 }
 

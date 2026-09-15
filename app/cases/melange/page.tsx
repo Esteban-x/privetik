@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import JsonLd from "@/components/seo/JsonLd";
 import { breadcrumb, graph } from "@/lib/seo/structured-data";
 import CaseMixPractice from "@/components/exercises/CaseMixPractice";
+import { caseLessons } from "@/lib/courses/practice-lessons";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import type { CefrLevel } from "@/lib/supabase/types";
 
@@ -65,7 +66,7 @@ export default async function CasesMixPage() {
         phrase demande.
       </p>
 
-      <CaseMixPractice userLevel={level} signedIn={signedIn} />
+      <CaseMixPractice userLevel={level} signedIn={signedIn} lessons={caseLessons()} />
     </div>
   );
 }

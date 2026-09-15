@@ -24,6 +24,8 @@ import { BulbIcon } from "@/components/ui/icons";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
 import SeriesRecap from "@/components/exercises/SeriesRecap";
+import { LessonLinkRow } from "@/components/exercises/PracticeCard";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { shuffle } from "@/lib/exercises/types";
 import { usePracticeAttempt } from "@/lib/practice/attempt-client";
 import { rememberDraw } from "@/lib/practice/recent";
@@ -32,6 +34,7 @@ import {
   SERIES_LENGTH,
   retriesLeft,
   scheduleRetry,
+  spokenGap,
   spokenSentence,
   takeAnyRetry,
   takeDueRetry,
@@ -149,9 +152,12 @@ export default function CaseDeclension({
   caseInfo,
   userLevel,
   signedIn,
+  lesson = null,
 }: {
   caseInfo: CaseInfo;
   userLevel?: CefrLevel;
+  /** La leçon du cas, à revoir après une erreur — voir lib/courses/practice-lessons.ts. */
+  lesson?: LessonLink | null;
   /**
    * La page est publique depuis qu'elle sert au référencement ; la carte
    * d'entraînement, elle, ne l'est pas. Voir `VisitorCard` plus bas.
@@ -578,6 +584,9 @@ export default function CaseDeclension({
         exercise.accentedForm ?? exercise.correctForm,
       );
 
+  // La phrase à trou, à écouter avant de répondre — voir `spokenGap`.
+  const gap = exercise && isSentenceLike ? spokenGap(exercise.sentenceTemplate) : null;
+
   const endOfSeries = !isRetry && answered >= SERIES_LENGTH;
   const nextLabel = endOfSeries ? "Voir le bilan →" : "Suivant →";
 
@@ -747,6 +756,15 @@ export default function CaseDeclension({
                   {exercise.sentenceFr}
                   {lemmaHint && <span className="ml-2 not-italic text-accent2">({lemmaHint})</span>}
                 </p>
+                {!feedback && gap && (
+                  <SpeakButton
+                    text="Écouter la phrase"
+                    label="Écouter la phrase, sans le mot manquant"
+                    title="Écouter la phrase à trou"
+                    onSpeak={() => speakRu(gap)}
+                    className="mt-3"
+                  />
+                )}
               </div>
             )}
 
@@ -888,6 +906,7 @@ export default function CaseDeclension({
                       : "Encore manqué : il reste dans le bilan de la série, pour y revenir à tête reposée."}
                   </p>
                 )}
+                {feedback.status !== "correct" && lesson && <LessonLinkRow lesson={lesson} />}
                 {spoken && (
                   <div className="mt-3">
                     <SpeakButton

@@ -18,7 +18,8 @@ import { diagnoseCaseAnswer } from "@/lib/grammar/diagnose";
 import type { TriggerProgressMap } from "@/lib/grammar/exercise-selector";
 import { CASE_MIX_GRADIENT, CASE_MIX_VARS } from "@/lib/grammar/case-mix-style";
 import { rememberDraw } from "@/lib/practice/recent";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { usePracticeSession, type ChoiceExercise } from "@/lib/practice/use-practice-session";
 import PracticeCard from "@/components/exercises/PracticeCard";
 import { BulbIcon } from "@/components/ui/icons";
@@ -65,9 +66,12 @@ function toItem(exercise: CaseExercise): MixedItem {
 export default function CaseMixPractice({
   userLevel,
   signedIn,
+  lessons = {},
 }: {
   userLevel?: CefrLevel;
   signedIn: boolean;
+  /** La leçon de chaque cas : chaque phrase du mélange demande le sien. */
+  lessons?: Partial<Record<CaseId, LessonLink>>;
 }) {
   const [triggerStats, setTriggerStats] = useState<TriggerProgressMap>({});
   const pool = useMemo(() => nounsForLevel(userLevel), [userLevel]);
@@ -127,6 +131,8 @@ export default function CaseMixPractice({
         paywallWhat="les exercices de déclinaison"
         answerMode="typing"
         spoken={(item) => spokenSentence(item.exercise.sentenceTemplate, item.options[0])}
+        prompt={(item) => spokenGap(item.exercise.sentenceTemplate)}
+        lesson={(item) => lessons[item.exercise.targetCase] ?? null}
         renderQuestion={(item) => (
           <MixedQuestion exercise={item.exercise} answered={Boolean(session.feedback)} />
         )}

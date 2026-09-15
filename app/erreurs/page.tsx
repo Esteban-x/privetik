@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ErrorsPractice from "@/components/exercises/ErrorsPractice";
+import { allPracticeLessons } from "@/lib/courses/practice-lessons";
 
 export const metadata: Metadata = {
   title: "Mes erreurs",
@@ -26,7 +27,7 @@ export default function ErrorsPage() {
         Retrouver une réponse le lendemain la fixe bien mieux que la relire juste après l&apos;erreur :
         une réponse juste ici lève l&apos;erreur, une réponse fausse la garde pour la prochaine fois.
       </p>
-      <ErrorsPractice />
+      <ErrorsPractice lessons={allPracticeLessons()} />
     </div>
   );
 }

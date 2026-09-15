@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import SkillPageShell from "@/components/exercises/SkillPageShell";
 import AlphabetPractice from "@/components/alphabet/AlphabetPractice";
+import { lessonForPractice } from "@/lib/courses/practice-lessons";
 import { ALPHABET_SKILLS, getAlphabetSkill } from "@/lib/alphabet/exercises";
 import { skillColor } from "@/lib/exercises/colors";
 
@@ -42,7 +43,11 @@ export default async function AlphabetSkillPage({
       backLabel="Lire et écrire"
       lesson={LESSONS[info.id]}
     >
-      <AlphabetPractice skill={info.id} color={skillColor("alphabet", info.id)} />
+      <AlphabetPractice
+        skill={info.id}
+        color={skillColor("alphabet", info.id)}
+        lesson={lessonForPractice(`/alphabet/${info.id}`)}
+      />
     </SkillPageShell>
   );
 }

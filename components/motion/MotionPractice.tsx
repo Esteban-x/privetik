@@ -1,7 +1,8 @@
 "use client";
 
 import { drawFresh } from "@/lib/practice/recent";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { usePracticeSession } from "@/lib/practice/use-practice-session";
 import PracticeCard, { describeSentence } from "@/components/exercises/PracticeCard";
 import TrajectoryDiagram, { SCHEMA_LABEL } from "./TrajectoryDiagram";
@@ -14,9 +15,12 @@ import {
 export default function MotionPractice({
   skill,
   color,
+  lesson = null,
 }: {
   skill: MotionSkillId;
   color: string;
+  /** La leçon à revoir après une erreur — voir lib/courses/practice-lessons.ts. */
+  lesson?: LessonLink | null;
 }) {
   const key = `motion:${skill}`;
   const session = usePracticeSession<MotionExercise>({
@@ -37,6 +41,8 @@ export default function MotionPractice({
       session={session}
       paywallWhat="les exercices de mouvement"
       spoken={(ex) => spokenSentence(ex.sentence, ex.options[ex.correctIndex])}
+      prompt={(ex) => spokenGap(ex.sentence)}
+      lesson={() => lesson}
       skeleton={
         <div className="animate-fade-in space-y-4">
           <div className="skeleton h-4 w-48 rounded-full" />

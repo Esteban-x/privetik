@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ParticiplePractice from "@/components/participles/ParticiplePractice";
+import { lessonForPractice } from "@/lib/courses/practice-lessons";
 import { getSkill, PARTICIPLE_SKILLS, type ParticipleSkillId } from "@/lib/participles/exercises";
 
 const SKILL_COLOR: Record<string, string> = {
@@ -59,7 +60,11 @@ export default async function ParticipleSkillPage({
       </div>
       <p className="mb-7 sm:mb-10 max-w-2xl font-display leading-relaxed text-muted">{info.summary}</p>
 
-      <ParticiplePractice skill={info.id as ParticipleSkillId} color={SKILL_COLOR[info.id]} />
+      <ParticiplePractice
+        skill={info.id as ParticipleSkillId}
+        color={SKILL_COLOR[info.id]}
+        lesson={lessonForPractice(`/participles/${info.id}`)}
+      />
 
       {next && (
         <div className="mt-10 rounded-[20px] surface p-6">

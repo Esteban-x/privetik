@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import AdjectivePractice from "@/components/adjectives/AdjectivePractice";
+import { lessonForPractice } from "@/lib/courses/practice-lessons";
 import { getSkill, ADJECTIVE_SKILLS, type AdjectiveSkillId } from "@/lib/adjectives/exercises";
 
 const SKILL_COLOR: Record<string, string> = {
@@ -59,7 +60,11 @@ export default async function AdjectiveSkillPage({
       </div>
       <p className="mb-7 sm:mb-10 max-w-2xl font-display leading-relaxed text-muted">{info.summary}</p>
 
-      <AdjectivePractice skill={info.id as AdjectiveSkillId} color={SKILL_COLOR[info.id]} />
+      <AdjectivePractice
+        skill={info.id as AdjectiveSkillId}
+        color={SKILL_COLOR[info.id]}
+        lesson={lessonForPractice(`/adjectives/${info.id}`)}
+      />
 
       {next && (
         <div className="mt-10 rounded-[20px] surface p-6">

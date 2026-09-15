@@ -1,7 +1,8 @@
 "use client";
 
 import { drawFresh } from "@/lib/practice/recent";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { usePracticeSession } from "@/lib/practice/use-practice-session";
 import PracticeCard, {
   AnswerModeToggle,
@@ -17,9 +18,12 @@ import {
 export default function AdjectivePractice({
   skill,
   color,
+  lesson = null,
 }: {
   skill: AdjectiveSkillId;
   color: string;
+  /** La leçon à revoir après une erreur — voir lib/courses/practice-lessons.ts. */
+  lesson?: LessonLink | null;
 }) {
   const key = `adjectives:${skill}`;
   // Toutes les compétences s'écrivent : les formes d'un adjectif diffèrent
@@ -46,6 +50,8 @@ export default function AdjectivePractice({
       answerMode={mode}
       toolbar={<AnswerModeToggle mode={mode} onChange={setMode} />}
       spoken={(ex) => spokenSentence(ex.sentence, ex.options[ex.correctIndex])}
+      prompt={(ex) => spokenGap(ex.sentence)}
+      lesson={() => lesson}
       renderQuestion={(ex) => (
         <>
           {/* Ce sur quoi on accorde, énoncé avant la phrase : genre, nombre

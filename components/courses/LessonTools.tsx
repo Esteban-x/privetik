@@ -55,6 +55,23 @@ export function ReadingProgress() {
   );
 }
 
+/**
+ * Le rappel, en tête de leçon, qu'elle est déjà lue. La coche elle-même est
+ * en bas de la page : on coche une leçon après l'avoir lue, pas avant.
+ */
+export function LessonReadBadge({ slug }: { slug: string }) {
+  const { read } = useReadLessons();
+  if (!read.has(slug)) return null;
+  return (
+    <span className="inline-flex items-center gap-2 rounded-xl border border-success bg-success/15 px-4 py-2.5 font-display text-sm font-semibold text-success">
+      <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="h-3.5 w-3.5">
+        <path d="m5 13 4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      Leçon lue
+    </span>
+  );
+}
+
 /** « J'ai lu cette leçon » — la coche que le catalogue relira. */
 export function LessonReadToggle({ slug }: { slug: string }) {
   const { read, setRead } = useReadLessons();

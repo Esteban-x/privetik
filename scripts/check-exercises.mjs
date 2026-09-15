@@ -530,6 +530,37 @@ require_(
 // qui échoue commençait par deux lignes rassurantes — « 8 modules,
 // 40 compétences » — avant d'annoncer ce qui n'allait pas. Sur un terminal
 // qui défile, c'est la première ligne qu'on lit.
+// ─── La phrase à trou écoutée avant de répondre, la leçon à revoir après ──
+{
+  require_(retry.spokenGap("Я ___ в Москву́.") === "Я … в Москву́.", "phrase à trou : le trou doit devenir une pause, sans aucun mot");
+  require_(retry.spokenGap("у́жин") === null, "phrase à trou : un énoncé sans trou (la question elle-même) ne doit pas se prononcer");
+  require_(retry.spokenGap("___!") === null, "phrase à trou : sans russe autour du trou, rien à prononcer");
+  require_(retry.spokenGap(undefined) === null, "phrase à trou : sans énoncé, rien à prononcer");
+  require_(retry.spokenGap(`Я ___ ${"о".repeat(130)}`) === null, "phrase à trou : au-delà de ce que la synthèse prononce");
+
+  const PL = await jiti.import("../lib/courses/practice-lessons.ts");
+  for (const [href, expected] of [
+    ["/cases/dative", "/cours/datif"],
+    ["/cases/genitive", "/cours/genitif"],
+    ["/aspect/past", "/cours/aspect-au-passe"],
+    ["/aspect/markers", "/cours/aspect-le-principe"],
+    ["/conjugation/present2", "/cours/present-deuxieme-conjugaison"],
+  ]) {
+    const got = PL.lessonForPractice(href)?.href;
+    require_(got === expected, `leçon à revoir : ${href} devrait mener à ${expected}, pas à ${got}`);
+  }
+  const all = PL.allPracticeLessons();
+  for (const m of EXERCISE_MODULES) {
+    for (const s of m.skills) {
+      const link = all[`${m.href}/${s.id}`];
+      require_(
+        link && findLesson(link.href.replace("/cours/", "")),
+        `leçon à revoir : ${m.href}/${s.id} ne mène à aucune leçon`
+      );
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n${failures.length} problème(s) sur ${checks} contrôles :`);
   for (const failure of failures.slice(0, 40)) console.error(`  - ${failure}`);

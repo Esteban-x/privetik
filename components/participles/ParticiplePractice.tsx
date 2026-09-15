@@ -1,7 +1,8 @@
 "use client";
 
 import { drawFresh } from "@/lib/practice/recent";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { usePracticeSession } from "@/lib/practice/use-practice-session";
 import PracticeCard, { describeSentence } from "@/components/exercises/PracticeCard";
 import {
@@ -13,9 +14,12 @@ import {
 export default function ParticiplePractice({
   skill,
   color,
+  lesson = null,
 }: {
   skill: ParticipleSkillId;
   color: string;
+  /** La leçon à revoir après une erreur — voir lib/courses/practice-lessons.ts. */
+  lesson?: LessonLink | null;
 }) {
   const key = `participles:${skill}`;
   const session = usePracticeSession<ParticipleExercise>({
@@ -42,6 +46,8 @@ export default function ParticiplePractice({
       singleColumn={wholeSentences}
       compactOptions={wholeSentences}
       spoken={(ex) => spokenSentence(ex.compressed || undefined, ex.options[ex.correctIndex])}
+      prompt={(ex) => spokenGap(ex.compressed || undefined)}
+      lesson={() => lesson}
       skeleton={
         <div className="animate-fade-in space-y-4">
           <div className="skeleton h-4 w-48 rounded-full" />

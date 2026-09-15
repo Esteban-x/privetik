@@ -2,13 +2,22 @@
 
 import PracticeRunner from "@/components/exercises/PracticeRunner";
 import { generateNumberExercise, TYPABLE_NUMBER_SKILLS } from "@/lib/numbers/exercises";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 
 /**
  * Le pont entre la page (serveur) et le moteur (client) : une fonction ne
  * traverse pas la frontière serveur → client, c'est donc ici, en composant
  * client, que le générateur du module est attaché au moteur partagé.
  */
-export default function NumbersPractice({ skill, color }: { skill: string; color: string }) {
+export default function NumbersPractice({
+  skill,
+  color,
+  lesson = null,
+}: {
+  skill: string;
+  color: string;
+  lesson?: LessonLink | null;
+}) {
   return (
     <PracticeRunner
       module="numbers"
@@ -17,6 +26,7 @@ export default function NumbersPractice({ skill, color }: { skill: string; color
       color={color}
       generate={generateNumberExercise}
       typingSkills={TYPABLE_NUMBER_SKILLS}
+      lesson={lesson}
     />
   );
 }

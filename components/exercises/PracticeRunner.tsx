@@ -2,7 +2,8 @@
 
 import type { PracticeExercise } from "@/lib/exercises/types";
 import { drawFresh } from "@/lib/practice/recent";
-import { spokenSentence } from "@/lib/practice/retry";
+import { spokenGap, spokenSentence } from "@/lib/practice/retry";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { usePracticeSession } from "@/lib/practice/use-practice-session";
 import PracticeCard, { AnswerModeToggle, describeSentence, useAnswerMode } from "./PracticeCard";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
@@ -24,6 +25,7 @@ export default function PracticeRunner({
   color,
   generate,
   typingSkills = [],
+  lesson = null,
 }: {
   module: string;
   moduleTitle: string;
@@ -32,6 +34,8 @@ export default function PracticeRunner({
   generate: (skill: string) => PracticeExercise;
   /** Les compétences qu'on peut aussi écrire plutôt que choisir. */
   typingSkills?: readonly string[];
+  /** La leçon à revoir après une erreur — voir lib/courses/practice-lessons.ts. */
+  lesson?: LessonLink | null;
 }) {
   const typable = typingSkills.includes(skill);
   const [mode, setMode] = useAnswerMode(moduleId);
@@ -68,6 +72,9 @@ export default function PracticeRunner({
       answerMode={typable ? mode : "choice"}
       toolbar={typable ? <AnswerModeToggle mode={mode} onChange={setMode} /> : null}
       spoken={(ex) => spokenSentence(ex.question, ex.options[ex.correctIndex])}
+      // Un exercice à écouter a déjà son bouton, et sa question ne dit rien.
+      prompt={(ex) => (ex.audio ? null : spokenGap(ex.question))}
+      lesson={() => lesson}
       renderQuestion={(ex) => {
         const [before, after] = splitQuestion(ex.question);
         return (

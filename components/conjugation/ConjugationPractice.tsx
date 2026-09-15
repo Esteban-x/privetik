@@ -5,9 +5,18 @@ import {
   generateConjugationExercise,
   TYPABLE_CONJUGATION_SKILLS,
 } from "@/lib/conjugation/exercises";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 
 /** Attache le générateur du module au moteur partagé (voir NumbersPractice). */
-export default function ConjugationPractice({ skill, color }: { skill: string; color: string }) {
+export default function ConjugationPractice({
+  skill,
+  color,
+  lesson = null,
+}: {
+  skill: string;
+  color: string;
+  lesson?: LessonLink | null;
+}) {
   return (
     <PracticeRunner
       module="conjugation"
@@ -16,6 +25,7 @@ export default function ConjugationPractice({ skill, color }: { skill: string; c
       color={color}
       generate={generateConjugationExercise}
       typingSkills={TYPABLE_CONJUGATION_SKILLS}
+      lesson={lesson}
     />
   );
 }

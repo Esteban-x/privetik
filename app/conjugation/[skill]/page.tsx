@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import SkillPageShell from "@/components/exercises/SkillPageShell";
 import ConjugationPractice from "@/components/conjugation/ConjugationPractice";
+import { lessonForPractice } from "@/lib/courses/practice-lessons";
 import { CONJUGATION_SKILLS, getConjugationSkill } from "@/lib/conjugation/exercises";
 import { skillColor } from "@/lib/exercises/colors";
 
@@ -50,7 +51,11 @@ export default async function ConjugationSkillPage({
       backLabel="Conjugaison"
       lesson={LESSONS[info.id]}
     >
-      <ConjugationPractice skill={info.id} color={skillColor("conjugation", info.id)} />
+      <ConjugationPractice
+        skill={info.id}
+        color={skillColor("conjugation", info.id)}
+        lesson={lessonForPractice(`/conjugation/${info.id}`)}
+      />
     </SkillPageShell>
   );
 }

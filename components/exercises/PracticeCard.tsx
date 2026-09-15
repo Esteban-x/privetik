@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import PaywallNotice from "@/components/ui/PaywallNotice";
 import SpeakButton from "@/components/vocabulary/SpeakButton";
-import { BulbIcon } from "@/components/ui/icons";
+import { BookIcon, BulbIcon } from "@/components/ui/icons";
+import type { LessonLink } from "@/lib/courses/practice-lessons";
 import { speakRu } from "@/lib/vocabulary/speech";
 import { RETRY_GAP } from "@/lib/practice/retry";
 import { loadAnswerMode, saveAnswerMode, type AnswerMode } from "@/lib/storage";
@@ -29,6 +31,8 @@ export default function PracticeCard<T extends ChoiceExercise>({
   paywallWhat,
   renderQuestion,
   spoken,
+  prompt,
+  lesson,
   answerMode = "choice",
   toolbar,
   singleColumn = false,
@@ -54,6 +58,13 @@ export default function PracticeCard<T extends ChoiceExercise>({
   renderQuestion: (exercise: T) => React.ReactNode;
   /** La phrase russe à faire écouter une fois la réponse donnée. */
   spoken?: (exercise: T) => string | null;
+  /**
+   * La phrase à trou à faire écouter AVANT de répondre — le trou devient une
+   * pause, le mot manquant n'est jamais dit (voir `spokenGap`).
+   */
+  prompt?: (exercise: T) => string | null;
+  /** La leçon à revoir quand la réponse est fausse — voir lib/courses/practice-lessons.ts. */
+  lesson?: (exercise: T) => LessonLink | null;
   /** Un mode pour toute la carte, ou exercice par exercice (« Mes erreurs » mêle les deux). */
   answerMode?: AnswerMode | ((exercise: T) => AnswerMode);
   toolbar?: React.ReactNode;
@@ -78,6 +89,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
     typeof answerMode === "function" ? (exercise ? answerMode(exercise) : "choice") : answerMode;
   const progress = Math.min(session.answered, session.seriesLength);
   const endOfSeries = !session.isRetry && session.answered >= session.seriesLength;
+  const promptText = exercise ? (prompt?.(exercise) ?? null) : null;
 
   return (
     // LA COULEUR DU MODULE DESCEND JUSQU'AUX COMMANDES. Elle ne teintait que le
@@ -139,6 +151,19 @@ export default function PracticeCard<T extends ChoiceExercise>({
 
             {renderQuestion(exercise)}
 
+            {/* La phrase entendue avant de répondre, trou compris : on
+                cherche le mot à l'oreille comme on le chercherait en
+                écoutant quelqu'un parler. */}
+            {!feedback && promptText && (
+              <SpeakButton
+                text="Écouter la phrase"
+                label="Écouter la phrase, sans le mot manquant"
+                title="Écouter la phrase à trou"
+                onSpeak={() => speakRu(promptText)}
+                className="mt-4"
+              />
+            )}
+
             {mode === "typing" ? (
               <TypedAnswer
                 done={Boolean(feedback)}
@@ -169,6 +194,7 @@ export default function PracticeCard<T extends ChoiceExercise>({
                 answer={exercise.options[exercise.correctIndex]}
                 typed={mode === "typing"}
                 spoken={spoken?.(exercise) ?? null}
+                lesson={lesson?.(exercise) ?? null}
                 onNext={session.next}
                 nextLabel={endOfSeries ? "Voir le bilan →" : "Suivant →"}
               />
@@ -334,6 +360,7 @@ function PracticeFeedback({
   answer,
   typed,
   spoken,
+  lesson,
   onNext,
   nextLabel,
 }: {
@@ -342,6 +369,7 @@ function PracticeFeedback({
   answer: string;
   typed: boolean;
   spoken: string | null;
+  lesson: LessonLink | null;
   onNext: () => void;
   nextLabel: string;
 }) {
@@ -393,6 +421,10 @@ function PracticeFeedback({
               : "Encore manqué : il reste dans le bilan de la série, pour y revenir à tête reposée."}
           </p>
         )}
+        {/* LA LEÇON, AU MOMENT OÙ ELLE SERT. La correction dit la règle en
+            une ligne ; la leçon la déplie. C'est après une erreur qu'on a
+            envie de la relire, pas en parcourant le catalogue. */}
+        {!feedback.correct && lesson && <LessonLinkRow lesson={lesson} />}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
@@ -413,6 +445,22 @@ function PracticeFeedback({
         )}
       </div>
     </>
+  );
+}
+
+/** « Revoir la leçon », sous une correction : une rangée qui passe à la ligne, pas un `.btn` qui déborde. */
+export function LessonLinkRow({ lesson }: { lesson: LessonLink }) {
+  return (
+    <Link
+      href={lesson.href}
+      className="mt-3 flex items-center gap-2.5 rounded-[10px] border border-border bg-bg px-3.5 py-2.5 font-display text-sm font-semibold text-text transition-colors hover:border-accent/40 hover:text-accent-ink"
+    >
+      <BookIcon className="h-4 w-4 shrink-0 text-accent-ink" />
+      <span className="min-w-0">Revoir la leçon : {lesson.title}</span>
+      <span aria-hidden className="ml-auto pl-1">
+        →
+      </span>
+    </Link>
   );
 }
 

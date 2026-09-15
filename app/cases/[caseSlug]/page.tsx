@@ -9,6 +9,7 @@ import { CASES, getCase } from "@/lib/grammar/cases";
 import JsonLd from "@/components/seo/JsonLd";
 import { breadcrumb, graph, grammarResource } from "@/lib/seo/structured-data";
 import CaseDeclension from "@/components/exercises/CaseDeclension";
+import { lessonForPractice } from "@/lib/courses/practice-lessons";
 import ReferenceTable from "@/components/exercises/ReferenceTable";
 import TriggerReference from "@/components/exercises/TriggerReference";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
@@ -118,7 +119,12 @@ export default async function CasePracticePage({
       </h1>
       <p className="mb-7 sm:mb-10 max-w-2xl font-display leading-relaxed text-muted">{caseInfo.usage}</p>
 
-      <CaseDeclension caseInfo={caseInfo} userLevel={userLevel} signedIn={signedIn} />
+      <CaseDeclension
+        caseInfo={caseInfo}
+        userLevel={userLevel}
+        signedIn={signedIn}
+        lesson={lessonForPractice(`/cases/${caseInfo.id}`)}
+      />
 
       {/* Ici le cas est connu d'avance ; le mélange demande de le reconnaître.
           Un vrai bouton, aux couleurs des six cas : un lien bleu sous la carte

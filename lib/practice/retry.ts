@@ -135,3 +135,19 @@ export function spokenSentence(text: string | undefined, answer: string): string
         : null;
   return sentence && sentence.length <= SPOKEN_MAX ? sentence : null;
 }
+
+/**
+ * La phrase à trou telle qu'on la fait écouter AVANT de répondre : le trou
+ * devient une pause, le mot manquant n'est jamais prononcé.
+ *
+ * SEULEMENT UNE PHRASE À TROU. Un énoncé sans trou est souvent la question
+ * elle-même — une lettre dont on cherche le son, un mot dont on cherche
+ * l'accent : le prononcer donnerait la réponse. `null` aussi quand il n'y a
+ * pas de russe autour du trou (« ___! »), ou que la phrase dépasse ce que la
+ * synthèse prononce.
+ */
+export function spokenGap(text: string | undefined): string | null {
+  if (!text || !text.includes("___") || !CYRILLIC.test(text.replace(/_{3,}/g, ""))) return null;
+  const sentence = text.replace(/_{3,}/g, "…").replace(/\s+/g, " ").trim();
+  return sentence.length <= SPOKEN_MAX ? sentence : null;
+}
