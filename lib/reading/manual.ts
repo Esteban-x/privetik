@@ -107,6 +107,22 @@ export function tokenizeText(raw: string): string[][] {
   return sentences;
 }
 
+/**
+ * La langue d'une saisie, lue sur son alphabet — le champ accepte le russe
+ * collé comme le français écrit. Au moins sept lettres sur dix d'un côté :
+ * un texte russe qui cite « Louvre » reste russe, un texte français qui cite
+ * « борщ » reste français. Entre les deux, ou sans aucune lettre, rien n'est
+ * décidé.
+ */
+export function detectTextLanguage(raw: string): "ru" | "fr" | null {
+  const letters = [...raw].filter((ch) => LETTER.test(ch));
+  if (letters.length === 0) return null;
+  const share = letters.filter((ch) => CYRILLIC.test(ch)).length / letters.length;
+  if (share >= 0.7) return "ru";
+  if (share <= 0.3) return "fr";
+  return null;
+}
+
 export type ManualTextCheck =
   | { ok: true; sentences: string[][]; words: number }
   | { ok: false; error: string };
@@ -118,9 +134,7 @@ export function checkManualText(raw: string): ManualTextCheck {
   if (text.length > MANUAL_TEXT_MAX_CHARS) {
     return { ok: false, error: `Texte trop long : ${MANUAL_TEXT_MAX_CHARS} caractères au plus.` };
   }
-  const letters = [...text].filter((ch) => LETTER.test(ch));
-  const cyrillic = letters.filter((ch) => CYRILLIC.test(ch)).length;
-  if (letters.length === 0 || cyrillic / letters.length < 0.7) {
+  if (detectTextLanguage(text) !== "ru") {
     return { ok: false, error: "Le texte doit être en russe, écrit en cyrillique." };
   }
   const sentences = tokenizeText(text);
@@ -129,6 +143,34 @@ export function checkManualText(raw: string): ManualTextCheck {
     return { ok: false, error: `Il faut au moins ${MIN_WORDS} mots pour y lire des cas.` };
   }
   return { ok: true, sentences, words };
+}
+
+/**
+ * Un texte écrit en français, avant de partir en traduction. Les bornes du
+ * russe, pour que la traduction puisse ensuite être annotée : trop court, il
+ * n'y aurait pas de cas à lire ; trop long, sa traduction ne passerait pas.
+ */
+export function checkFrenchText(raw: string): { ok: true; words: number } | { ok: false; error: string } {
+  const text = raw.trim();
+  if (!text) return { ok: false, error: "Écris d'abord un texte en français." };
+  if (text.length > MANUAL_TEXT_MAX_CHARS) {
+    return { ok: false, error: `Texte trop long : ${MANUAL_TEXT_MAX_CHARS} caractères au plus.` };
+  }
+  const language = detectTextLanguage(text);
+  if (language === "ru") return { ok: false, error: "Ce texte est déjà en russe." };
+  if (language === null) {
+    return {
+      ok: false,
+      error: /\p{L}/u.test(text)
+        ? "Écris en français ou en russe, pas un mélange des deux."
+        : "Écris un texte en français ou en russe.",
+    };
+  }
+  const words = text.split(/\s+/).filter(isWordToken).length;
+  if (words < MIN_WORDS) {
+    return { ok: false, error: `Encore quelques mots : ${MIN_WORDS} au moins pour traduire.` };
+  }
+  return { ok: true, words };
 }
 
 /**

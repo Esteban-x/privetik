@@ -1103,6 +1103,24 @@ for (const text of T.READING_TEXTS) {
     `texte collé : titre de repli inattendu (${M.fallbackTitle(sentences)})`
   );
 
+  // Écrit en français ou collé en russe : la langue se lit sur l'alphabet.
+  require_(M.detectTextLanguage("Je vais voir le Kremlin et manger un борщ.") === "fr", "texte écrit : français citant du russe non reconnu");
+  require_(M.detectTextLanguage("Мы живём в Париже и любим Louvre.") === "ru", "texte collé : russe citant du latin non reconnu");
+  require_(M.detectTextLanguage("Привет, bonjour") === null, "texte mélangé : une langue a été décidée");
+  require_(M.detectTextLanguage("1799 — 1837") === null, "texte sans lettre : une langue a été décidée");
+  require_(M.checkFrenchText("Je vis à Moscou avec ma sœur.").ok, "texte écrit : phrase française simple refusée");
+  require_(!M.checkFrenchText("Bonjour Julie").ok, "texte écrit : deux mots acceptés pour traduction");
+  require_(!M.checkFrenchText("Я живу в Москве.").ok, "texte écrit : russe envoyé en traduction");
+  require_(
+    !M.checkFrenchText("Je vis à Moscou. ".repeat(200)).ok,
+    `texte écrit : plus de ${M.MANUAL_TEXT_MAX_CHARS} caractères acceptés en traduction`
+  );
+  const translation = P.readingTranslationPrompt();
+  require_(
+    /DONNÉE/.test(translation) && /retours à la ligne/.test(translation) && /\{"ru":"\.\.\."\}/.test(translation),
+    "texte écrit : le prompt de traduction a perdu sa mise en garde, le découpage ou sa forme de réponse"
+  );
+
   const prompt = P.readingAnnotationPrompt("B1");
   require_(
     /"nom", "gen", "dat", "acc", "ins" ou "pre"/.test(prompt) && /recopié/.test(prompt) && /DONNÉE/.test(prompt),

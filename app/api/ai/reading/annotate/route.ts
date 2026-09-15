@@ -7,6 +7,7 @@ import {
   annotationLines,
   applyAnnotations,
   checkManualText,
+  detectTextLanguage,
   fallbackTitle,
 } from "@/lib/reading/manual";
 import { verifyCaseTags } from "@/lib/reading/verify-cases";
@@ -38,8 +39,14 @@ export async function POST(req: Request) {
   // Le texte est jugé AVANT le quota : une saisie refusée ne coûte rien.
   const checked = checkManualText(typeof body.text === "string" ? body.text : "");
   if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
-  const givenTitle =
+  const titleInput =
     typeof body.title === "string" ? body.title.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  // Un titre en latin est celui d'un texte écrit en français : affiché tel
+  // quel, il resterait seul en français au-dessus du russe. Le modèle le
+  // traduit, et le français devient le titre français.
+  const titleIsFrench = detectTextLanguage(titleInput) === "fr";
+  const givenTitle = titleIsFrench ? "" : titleInput;
+  const givenTitleFr = titleIsFrench ? titleInput : "";
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -63,7 +70,13 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "user",
-          content: `${givenTitle ? `Titre : ${givenTitle}\n\n` : ""}${annotationLines(checked.sentences)}`,
+          content: `${
+            givenTitle
+              ? `Titre : ${givenTitle}\n\n`
+              : givenTitleFr
+                ? `Titre, en français : ${givenTitleFr}\n\n`
+                : ""
+          }${annotationLines(checked.sentences)}`,
         },
       ],
     });
@@ -104,7 +117,7 @@ export async function POST(req: Request) {
       .insert({
         user_id: user.id,
         title: text.title,
-        title_fr: str(raw.title_fr),
+        title_fr: givenTitleFr || str(raw.title_fr),
         level: text.level,
         sentences: text.sentences,
         summary_fr: str(raw.summary_fr),

@@ -45,6 +45,15 @@ export function annotateReadingText(input: {
   }).then((r) => json(r));
 }
 
+/** Un texte écrit en français, traduit en russe avant d'être annoté — voir app/api/ai/reading/translate. */
+export function translateReadingText(text: string): Promise<{ ru: string }> {
+  return fetch("/api/ai/reading/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  }).then((r) => json(r));
+}
+
 export interface SavedReadingTextSummary {
   id: string;
   title: string;

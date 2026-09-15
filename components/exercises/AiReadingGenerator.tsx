@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ReadingText } from "@/lib/reading/texts";
 import CaseReader from "./CaseReader";
 import { LoadingDots, SkeletonLines } from "@/components/ui/Skeleton";
@@ -8,9 +8,15 @@ import Select from "@/components/ui/Select";
 import {
   annotateReadingText,
   generateReadingText,
+  translateReadingText,
   type GenerateReadingOptions,
 } from "@/lib/reading/client";
-import { checkManualText, MANUAL_TEXT_MAX_CHARS } from "@/lib/reading/manual";
+import {
+  checkFrenchText,
+  checkManualText,
+  detectTextLanguage,
+  MANUAL_TEXT_MAX_CHARS,
+} from "@/lib/reading/manual";
 import { CASES_BY_LEARNING_ORDER } from "@/lib/grammar/cases";
 import { READING_LEVELS, type CefrLevel } from "@/lib/supabase/types";
 import type { ReadingLength, ReadingStyle } from "@/lib/ai/prompts";
@@ -30,36 +36,78 @@ const STYLE_OPTIONS: { value: ReadingStyle; label: string }[] = [
   { value: "description", label: "Description" },
 ];
 
-type Source = "generate" | "paste";
+type Source = "paste" | "generate";
 
-const SOURCES: { value: Source; label: string }[] = [
-  { value: "generate", label: "Générer un texte" },
-  { value: "paste", label: "Coller mon texte" },
+const ICON = "h-5 w-5";
+
+const SOURCES: { value: Source; label: string; hint: string; icon: ReactNode }[] = [
+  {
+    value: "paste",
+    label: "Mon texte",
+    hint: "Écris en français, ou colle un texte russe",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={ICON}>
+        <path d="M12 20h9" strokeLinecap="round" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    value: "generate",
+    label: "Générer un texte",
+    hint: "Écrit par l'IA pour travailler un cas",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={ICON}>
+        <path d="M11 3l1.8 4.9L17.7 9.7l-4.9 1.8L11 16.4l-1.8-4.9L4.3 9.7l4.9-1.8Z" strokeLinejoin="round" />
+        <path d="M18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
 ];
 
 const FIELD =
   "w-full rounded-[10px] border border-border bg-bg px-3 py-2.5 font-display text-text field-focus focus:outline-none";
 
 /**
- * Un texte à lire, écrit par l'IA ou collé par l'apprenant.
+ * La pause de frappe qui déclenche la traduction. Plus longue que celle du
+ * vocabulaire (650 ms) : chaque appel retraduit le texte entier, et chacun
+ * se décompte.
+ */
+const TRANSLATE_DEBOUNCE_MS = 1200;
+
+/** Ce qui décide de retraduire : un espace de plus ou une ligne vide en fin de texte ne changent rien. */
+function normalizeDraft(text: string): string {
+  return text.trim().replace(/[^\S\n]+/g, " ");
+}
+
+/**
+ * Un texte à lire, écrit par l'apprenant ou par l'IA.
  *
- * LE CAS EST LA PREMIÈRE QUESTION, PLUS UNE OPTION CACHÉE. Il vivait dans le
- * panneau « Options », sous le niveau, la longueur et la forme : le réglage
- * qui fait l'intérêt du module était le dernier qu'on voyait, et le plus
- * souvent jamais. Il est maintenant à découvert ; le reste, qu'on règle une
- * fois, reste replié.
+ * SON PROPRE TEXTE D'ABORD. Il vivait derrière une petite pastille, à côté
+ * d'un gros bouton « Générer un texte » : on ne voyait que la génération.
+ * Les deux chemins sont maintenant deux cartes de même taille, et « Mon
+ * texte » est ouvert par défaut, son champ déjà sous les yeux.
  *
- * UN TEXTE À SOI. Ce qu'on a envie de lire — un article, une chanson, le
- * message d'un ami — ne sort pas d'un générateur. Collé ici, il est annoté mot
- * à mot, puis lu, deviné et expliqué exactement comme les autres. Les deux
- * chemins partagent la suite : chargement, plafond, lecture et « Mes textes ».
+ * ÉCRIT EN FRANÇAIS, LU EN RUSSE. Ce qu'on a envie de lire — ce qu'on a fait
+ * ce week-end, un message à écrire — on ne sait pas encore l'écrire en russe.
+ * Le champ reconnaît la langue à l'alphabet : du russe collé part tel quel ;
+ * du français est traduit à chaque pause de frappe, dans un second champ qui
+ * se retouche, et c'est cette traduction qui est annotée.
+ *
+ * LE CAS EST LA PREMIÈRE QUESTION DE LA GÉNÉRATION, PLUS UNE OPTION CACHÉE.
+ * Il vivait dans le panneau « Options », sous le niveau, la longueur et la
+ * forme : le réglage qui fait l'intérêt du module était le dernier qu'on
+ * voyait. Il est à découvert ; le reste, qu'on règle une fois, reste replié.
+ *
+ * Les deux chemins partagent la suite : chargement, plafond, lecture et
+ * « Mes textes ».
  */
 export default function AiReadingGenerator({
   onGenerated,
 }: {
   onGenerated?: (id: string) => void;
 }) {
-  const [source, setSource] = useState<Source>("generate");
+  const [source, setSource] = useState<Source>("paste");
   const [loading, setLoading] = useState(false);
   const [text, setText] = useState<ReadingText | null>(null);
   const [completedTitle, setCompletedTitle] = useState<string | null>(null);
@@ -80,9 +128,69 @@ export default function AiReadingGenerator({
   const [pasted, setPasted] = useState("");
   const [pastedTitle, setPastedTitle] = useState("");
   const pasteRef = useRef<HTMLTextAreaElement>(null);
-  // Jugé à la frappe, avec la règle du serveur : un texte trop long ou en
-  // latin se voit avant d'envoyer, pas après un aller-retour.
-  const pasteCheck = pasted.trim() ? checkManualText(pasted) : null;
+
+  // La traduction du français, et le français exact dont elle vient : c'est
+  // ce couple qui dit si le russe affiché correspond encore à ce qui est écrit.
+  const [translation, setTranslation] = useState("");
+  const [translatedFrom, setTranslatedFrom] = useState<string | null>(null);
+  const [translateError, setTranslateError] = useState<{ draft: string; message: string } | null>(null);
+  const requestId = useRef(0);
+
+  const language = detectTextLanguage(pasted);
+  const writingFrench = language === "fr";
+  const draft = normalizeDraft(pasted);
+  // Jugés à la frappe, avec les règles du serveur : un texte trop long ou
+  // illisible se voit avant d'envoyer, pas après un aller-retour.
+  const frenchCheck = draft && language !== "ru" ? checkFrenchText(draft) : null;
+  const frenchReady = writingFrench && frenchCheck?.ok === true;
+  const failedDraft = translateError?.draft ?? null;
+  // Une traduction attendue : la pause de frappe court, ou la réponse est en route.
+  const translationPending = frenchReady && draft !== translatedFrom && failedDraft !== draft;
+  // Ce qui part à l'annotation : le russe collé, ou la traduction du français.
+  const russian = writingFrench ? translation : pasted;
+  const pasteCheck = russian.trim() ? checkManualText(russian) : null;
+  const canAnnotate =
+    pasteCheck?.ok === true && (!writingFrench || (frenchReady && draft === translatedFrom));
+
+  useEffect(() => {
+    if (!frenchReady || draft === translatedFrom || draft === failedDraft) return;
+
+    // NUMÉROTÉE, PAS ANNULÉE — voir components/vocabulary/AddWordForm.tsx,
+    // où `AbortController` laissait fuir un `AbortError` jusqu'à l'écran.
+    // Une réponse qui n'est plus la dernière attendue est simplement jetée.
+    const id = ++requestId.current;
+    const timer = setTimeout(async () => {
+      try {
+        const { ru } = await translateReadingText(draft);
+        if (id !== requestId.current) return;
+        setTranslation(ru);
+        setTranslatedFrom(draft);
+        setTranslateError(null);
+        setBlocked(null);
+      } catch (err) {
+        if (id !== requestId.current) return;
+        if (isQuotaError(err)) {
+          setBlocked({ quota: err.quota, message: err.message });
+        }
+        // Retenu pour CE français : sans cela, l'effet reprendrait aussitôt
+        // et relancerait en boucle une demande qui vient d'échouer. Le
+        // prochain mot tapé, ou « Réessayer », la relancent.
+        setTranslateError({
+          draft,
+          message: isQuotaError(err)
+            ? "Traduction automatique en pause."
+            : err instanceof Error && err.message !== "Erreur réseau"
+              ? err.message
+              : "Traduction indisponible pour le moment.",
+        });
+      }
+    }, TRANSLATE_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+      requestId.current += 1;
+    };
+  }, [frenchReady, draft, translatedFrom, failedDraft]);
 
   async function run(
     request: () => Promise<{ text: ReadingText; id: string | null }>,
@@ -125,9 +233,9 @@ export default function AiReadingGenerator({
   }
 
   async function annotate() {
-    if (!pasteCheck?.ok) return;
+    if (!canAnnotate) return;
     const done = await run(
-      () => annotateReadingText({ text: pasted, title: pastedTitle.trim() || undefined }),
+      () => annotateReadingText({ text: russian, title: pastedTitle.trim() || undefined }),
       // Les refus du serveur sont écrits pour l'apprenant (« Le texte doit
       // être en russe… ») : on les montre tels quels.
       (err) =>
@@ -135,10 +243,13 @@ export default function AiReadingGenerator({
           ? err.message
           : "Annotation indisponible pour le moment.",
     );
-    // Le texte est enregistré dans « Mes textes » : le champ se vide pour le suivant.
+    // Le texte est enregistré dans « Mes textes » : les champs se vident pour le suivant.
     if (done) {
       setPasted("");
       setPastedTitle("");
+      setTranslation("");
+      setTranslatedFrom(null);
+      setTranslateError(null);
     }
   }
 
@@ -149,75 +260,49 @@ export default function AiReadingGenerator({
   }
 
   const pasting = source === "paste";
+  const showTranslation = writingFrench && (translation !== "" || translationPending || !!translateError);
 
   return (
     <div className="rounded-[20px] border border-dashed border-accent/50 bg-accent/5 p-6">
       <div
         role="radiogroup"
         aria-label="Origine du texte"
-        className="mb-5 inline-flex rounded-full border border-border bg-bg p-1"
+        className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2"
       >
-        {SOURCES.map((s) => (
-          <button
-            key={s.value}
-            type="button"
-            role="radio"
-            aria-checked={source === s.value}
-            onClick={() => chooseSource(s.value)}
-            className={`rounded-full px-3.5 py-1.5 font-display text-xs font-semibold transition-colors ${
-              source === s.value ? "bg-accent text-white" : "text-muted hover:text-text"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h3 className="font-display text-lg font-bold">
-            {pasting ? "Ton propre texte" : "Un texte pour travailler un cas"}
-          </h3>
-          <p className="mt-0.5 font-display text-sm text-muted">
-            {pasting
-              ? "Un article, une chanson, un message : chaque mot est annoté, comme dans les autres textes."
-              : "Écrit à ton niveau et annoté mot à mot : chaque phrase s'explique d'un geste."}
-          </p>
-        </div>
-        {pasting ? (
-          <button
-            onClick={annotate}
-            disabled={loading || !pasteCheck?.ok}
-            className="btn btn-primary btn-sheen rounded-[10px] cursor-pointer px-5 py-3 font-display text-sm disabled:cursor-default disabled:opacity-60"
-          >
-            {loading ? "Annotation…" : "Annoter le texte"}
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
+        {SOURCES.map((s) => {
+          const active = source === s.value;
+          return (
             <button
-              onClick={() => setOptionsOpen((v) => !v)}
-              aria-expanded={optionsOpen}
-              className={`rounded-[10px] cursor-pointer border px-4 py-3 font-display text-sm font-semibold transition-colors ${
-                optionsOpen
-                  ? "border-accent bg-accent/10 text-accent-ink"
-                  : "border-border text-muted hover:text-text"
+              key={s.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => chooseSource(s.value)}
+              className={`flex cursor-pointer items-center gap-3.5 rounded-[14px] border p-4 text-left transition-colors ${
+                active
+                  ? "border-accent bg-bg shadow-float ring-1 ring-accent"
+                  : "border-border bg-bg/60 hover:border-accent/50"
               }`}
             >
-              Options {optionsOpen ? "▲" : "▼"}
+              <span
+                aria-hidden
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] transition-colors ${
+                  active ? "bg-accent text-white" : "bg-accent/10 text-accent-ink"
+                }`}
+              >
+                {s.icon}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-display text-base font-bold text-text">{s.label}</span>
+                <span className="block font-display text-sm text-muted">{s.hint}</span>
+              </span>
             </button>
-            <button
-              onClick={generate}
-              disabled={loading}
-              className="btn btn-primary btn-sheen rounded-[10px] cursor-pointer px-5 py-3 font-display text-sm disabled:opacity-60"
-            >
-              {loading ? "Génération…" : "Générer un texte"}
-            </button>
-          </div>
-        )}
+          );
+        })}
       </div>
 
       {pasting ? (
-        <div className="mt-4 space-y-2.5">
+        <div className="space-y-2.5">
           <input
             type="text"
             value={pastedTitle}
@@ -232,10 +317,10 @@ export default function AiReadingGenerator({
             value={pasted}
             onChange={(e) => setPasted(e.target.value)}
             rows={7}
-            lang="ru"
-            spellCheck={false}
-            placeholder="Вставь сюда текст на русском…"
-            aria-label="Texte russe à annoter"
+            lang={language === "ru" ? "ru" : "fr"}
+            spellCheck={language !== "ru"}
+            placeholder="Écris ici en français — la traduction russe arrive toute seule. Ou colle directement un texte russe."
+            aria-label="Ton texte, en français ou en russe"
             aria-describedby="paste-status"
             className={`${FIELD} block resize-y text-base leading-relaxed`}
           />
@@ -243,15 +328,23 @@ export default function AiReadingGenerator({
             id="paste-status"
             className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-display text-xs"
           >
-            {pasteCheck && !pasteCheck.ok ? (
-              <span className="text-danger">{pasteCheck.error}</span>
+            {!draft ? (
+              <span className="text-muted">Compte comme un texte généré.</span>
+            ) : language === "ru" ? (
+              pasteCheck && !pasteCheck.ok ? (
+                <span className="text-danger">{pasteCheck.error}</span>
+              ) : (
+                <span className="text-muted">
+                  {pasteCheck?.ok
+                    ? `Russe : ${pasteCheck.words} mots, ${pasteCheck.sentences.length} phrase${pasteCheck.sentences.length > 1 ? "s" : ""}. `
+                    : ""}
+                  Compte comme un texte généré.
+                </span>
+              )
+            ) : frenchCheck && !frenchCheck.ok ? (
+              <span className="text-danger">{frenchCheck.error}</span>
             ) : (
-              <span className="text-muted">
-                {pasteCheck?.ok
-                  ? `${pasteCheck.words} mots, ${pasteCheck.sentences.length} phrase${pasteCheck.sentences.length > 1 ? "s" : ""}. `
-                  : ""}
-                Compte comme un texte généré.
-              </span>
+              <span className="text-muted">Français : traduit en russe ci-dessous.</span>
             )}
             <span
               className={`tabular-nums ${pasted.trim().length > MANUAL_TEXT_MAX_CHARS ? "text-danger" : "text-muted"}`}
@@ -259,99 +352,201 @@ export default function AiReadingGenerator({
               {pasted.trim().length} / {MANUAL_TEXT_MAX_CHARS}
             </span>
           </div>
+
+          {showTranslation && (
+            <div className="animate-fade-in rounded-[14px] surface p-4">
+              <div className="mb-2 flex min-h-5 flex-wrap items-center justify-between gap-2">
+                <p className="font-display text-xs font-semibold uppercase tracking-wide text-muted">
+                  Traduction russe
+                </p>
+                {translationPending && <LoadingDots label="Traduction…" />}
+              </div>
+              {translateError && !translationPending && (
+                <p role="alert" className="mb-2 font-display text-sm text-danger">
+                  {translateError.message}{" "}
+                  <button
+                    type="button"
+                    onClick={() => setTranslateError(null)}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    Réessayer
+                  </button>
+                </p>
+              )}
+              {translation ? (
+                <>
+                  <textarea
+                    value={translation}
+                    onChange={(e) => setTranslation(e.target.value)}
+                    rows={6}
+                    lang="ru"
+                    spellCheck={false}
+                    aria-label="Traduction russe, à retoucher si besoin"
+                    aria-describedby="translation-status"
+                    className={`${FIELD} block resize-y text-base leading-relaxed transition-opacity ${
+                      translationPending ? "opacity-60" : ""
+                    }`}
+                  />
+                  <div
+                    id="translation-status"
+                    className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-display text-xs"
+                  >
+                    {pasteCheck && !pasteCheck.ok ? (
+                      <span className="text-danger">{pasteCheck.error}</span>
+                    ) : (
+                      <span className="text-muted">
+                        {pasteCheck?.ok
+                          ? `${pasteCheck.words} mots, ${pasteCheck.sentences.length} phrase${pasteCheck.sentences.length > 1 ? "s" : ""}. `
+                          : ""}
+                        Tu peux la retoucher avant d&apos;annoter.
+                      </span>
+                    )}
+                    <span
+                      className={`tabular-nums ${translation.trim().length > MANUAL_TEXT_MAX_CHARS ? "text-danger" : "text-muted"}`}
+                    >
+                      {translation.trim().length} / {MANUAL_TEXT_MAX_CHARS}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                translationPending && <SkeletonLines lines={3} />
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-1.5">
+            <button
+              onClick={annotate}
+              disabled={loading || !canAnnotate}
+              className="btn btn-primary btn-sheen rounded-[10px] cursor-pointer px-5 py-3 font-display text-sm disabled:cursor-default disabled:opacity-60"
+            >
+              {loading ? "Annotation…" : writingFrench ? "Annoter la traduction" : "Annoter le texte"}
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="mt-4">
-          <p className="mb-2 font-display text-xs font-semibold uppercase tracking-wide text-muted">
-            Cas à travailler
-          </p>
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Cas à travailler">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={focusCase === ""}
-              onClick={() => setFocusCase("")}
-              className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
-                focusCase === ""
-                  ? "border-accent bg-accent/10 text-accent-ink"
-                  : "border-border text-muted hover:text-text"
-              }`}
-            >
-              Tous (varié)
-            </button>
-            {CASES_BY_LEARNING_ORDER.map((c) => (
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="font-display text-lg font-bold">Un texte pour travailler un cas</h3>
+              <p className="mt-0.5 font-display text-sm text-muted">
+                Écrit à ton niveau et annoté mot à mot : chaque phrase s&apos;explique d&apos;un geste.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
               <button
-                key={c.id}
+                onClick={() => setOptionsOpen((v) => !v)}
+                aria-expanded={optionsOpen}
+                className={`rounded-[10px] cursor-pointer border px-4 py-3 font-display text-sm font-semibold transition-colors ${
+                  optionsOpen
+                    ? "border-accent bg-accent/10 text-accent-ink"
+                    : "border-border text-muted hover:text-text"
+                }`}
+              >
+                Options {optionsOpen ? "▲" : "▼"}
+              </button>
+              <button
+                onClick={generate}
+                disabled={loading}
+                className="btn btn-primary btn-sheen rounded-[10px] cursor-pointer px-5 py-3 font-display text-sm disabled:opacity-60"
+              >
+                {loading ? "Génération…" : "Générer un texte"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="mb-2 font-display text-xs font-semibold uppercase tracking-wide text-muted">
+              Cas à travailler
+            </p>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Cas à travailler">
+              <button
                 type="button"
                 role="radio"
-                aria-checked={focusCase === c.id}
-                onClick={() => setFocusCase(c.id)}
+                aria-checked={focusCase === ""}
+                onClick={() => setFocusCase("")}
                 className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
-                  focusCase === c.id ? "text-white" : "border-border text-muted hover:text-text"
+                  focusCase === ""
+                    ? "border-accent bg-accent/10 text-accent-ink"
+                    : "border-border text-muted hover:text-text"
                 }`}
-                style={
-                  focusCase === c.id ? { backgroundColor: c.color, borderColor: c.color } : undefined
-                }
               >
-                {c.nameFr}
+                Tous (varié)
               </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!pasting && optionsOpen && (
-        <div className="animate-fade-in mt-5 grid grid-cols-1 gap-4 rounded-[14px] surface p-5 sm:grid-cols-3">
-          <div>
-            <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
-              Niveau
-            </label>
-            <Select
-              value={level}
-              onChange={(v) => setLevel(v as CefrLevel | "")}
-              wrapperClassName="w-full"
-              className={`${FIELD} text-sm`}
-              options={[
-                { value: "", label: "Mon niveau" },
-                ...READING_LEVELS.map((l) => ({ value: l, label: l })),
-              ]}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
-              Longueur
-            </label>
-            <div className="flex gap-1.5">
-              {LENGTH_OPTIONS.map((opt) => (
+              {CASES_BY_LEARNING_ORDER.map((c) => (
                 <button
-                  key={opt.value}
-                  onClick={() => setLength(opt.value)}
-                  className={`flex-1 rounded-[10px] border px-2 py-2.5 font-display text-sm font-semibold transition-colors ${
-                    length === opt.value
-                      ? "border-accent bg-accent/10 text-accent-ink"
-                      : "border-border text-muted hover:text-text"
+                  key={c.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={focusCase === c.id}
+                  onClick={() => setFocusCase(c.id)}
+                  className={`rounded-full border px-3 py-1.5 font-display text-xs font-semibold transition-colors ${
+                    focusCase === c.id ? "text-white" : "border-border text-muted hover:text-text"
                   }`}
+                  style={
+                    focusCase === c.id ? { backgroundColor: c.color, borderColor: c.color } : undefined
+                  }
                 >
-                  {opt.label}
+                  {c.nameFr}
                 </button>
               ))}
             </div>
           </div>
 
-          <div>
-            <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
-              Forme
-            </label>
-            <Select
-              value={style}
-              onChange={(v) => setStyle(v as ReadingStyle)}
-              wrapperClassName="w-full"
-              className={`${FIELD} text-sm`}
-              options={STYLE_OPTIONS}
-            />
-          </div>
-        </div>
+          {optionsOpen && (
+            <div className="animate-fade-in mt-5 grid grid-cols-1 gap-4 rounded-[14px] surface p-5 sm:grid-cols-3">
+              <div>
+                <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
+                  Niveau
+                </label>
+                <Select
+                  value={level}
+                  onChange={(v) => setLevel(v as CefrLevel | "")}
+                  wrapperClassName="w-full"
+                  className={`${FIELD} text-sm`}
+                  options={[
+                    { value: "", label: "Mon niveau" },
+                    ...READING_LEVELS.map((l) => ({ value: l, label: l })),
+                  ]}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
+                  Longueur
+                </label>
+                <div className="flex gap-1.5">
+                  {LENGTH_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setLength(opt.value)}
+                      className={`flex-1 rounded-[10px] border px-2 py-2.5 font-display text-sm font-semibold transition-colors ${
+                        length === opt.value
+                          ? "border-accent bg-accent/10 text-accent-ink"
+                          : "border-border text-muted hover:text-text"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block font-display text-xs font-semibold uppercase tracking-wide text-muted">
+                  Forme
+                </label>
+                <Select
+                  value={style}
+                  onChange={(v) => setStyle(v as ReadingStyle)}
+                  wrapperClassName="w-full"
+                  className={`${FIELD} text-sm`}
+                  options={STYLE_OPTIONS}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {blocked && (
@@ -359,7 +554,7 @@ export default function AiReadingGenerator({
           <PaywallNotice
             quota={blocked.quota}
             message={blocked.message}
-            what="les textes générés"
+            what={pasting ? "la traduction et les textes à toi" : "les textes générés"}
           />
         </div>
       )}
@@ -401,7 +596,7 @@ export default function AiReadingGenerator({
             }}
             className="btn btn-primary btn-sheen rounded-[10px] px-4 py-2 font-display text-sm"
           >
-            {pasting ? "Coller un autre texte" : "Un autre texte"}
+            {pasting ? "Écrire un autre texte" : "Un autre texte"}
           </button>
         </div>
       )}

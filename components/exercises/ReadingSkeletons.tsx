@@ -63,26 +63,36 @@ export function ReadingHubSkeleton() {
         </p>
 
         <div className="mb-12 rounded-[20px] border border-dashed border-accent/30 bg-accent/5 p-6">
-          {/* « Générer un texte » / « Coller mon texte ». */}
-          <span className="skeleton mb-5 block h-[38px] w-[258px] max-w-full rounded-full" />
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="font-display text-lg">
-                <Line className="w-64 max-w-full" />
-              </p>
-              <p className="mt-0.5 font-display text-sm">
-                <Line className="w-80 max-w-full" />
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <span className="skeleton h-[46px] w-[104px] rounded-[10px]" />
+          {/* « Mon texte » / « Générer un texte ». */}
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[0, 1].map((i) => (
+              <div key={i} className="flex items-center gap-3.5 rounded-[14px] border border-border p-4">
+                <span className="skeleton h-10 w-10 shrink-0 rounded-[10px]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-base">
+                    <Line className="w-28" />
+                  </span>
+                  <span className="block font-display text-sm">
+                    <Line className="w-56 max-w-full" />
+                  </span>
+                  {/* Sur un téléphone, la description passe sur deux lignes. */}
+                  <span className="block font-display text-sm sm:hidden">
+                    <Line className="w-24" />
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* « Mon texte », ouvert par défaut : titre, texte, état, bouton. */}
+          <div className="space-y-2.5">
+            <span className="skeleton block h-[42px] rounded-[10px]" />
+            <span className="skeleton block h-[204px] rounded-[10px]" />
+            <p className="font-display text-xs">
+              <Line className="w-44" />
+            </p>
+            <div className="flex justify-end pt-1.5">
               <span className="skeleton h-[46px] w-[150px] rounded-[10px]" />
             </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-              <span key={i} className="skeleton h-[30px] w-24 rounded-full" />
-            ))}
           </div>
         </div>
 
