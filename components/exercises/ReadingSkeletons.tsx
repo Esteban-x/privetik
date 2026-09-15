@@ -83,16 +83,14 @@ export function ReadingHubSkeleton() {
               </div>
             ))}
           </div>
-          {/* « Mon texte », ouvert par défaut : titre, texte, état, bouton. */}
+          {/* « Mon texte », ouvert par défaut : titre, texte, état. Pas de
+              bouton : le texte s'annote quand il est fini. */}
           <div className="space-y-2.5">
             <span className="skeleton block h-[42px] rounded-[10px]" />
             <span className="skeleton block h-[204px] rounded-[10px]" />
-            <p className="font-display text-xs">
-              <Line className="w-44" />
+            <p className="min-h-5 font-display text-xs">
+              <Line className="w-72 max-w-full" />
             </p>
-            <div className="flex justify-end pt-1.5">
-              <span className="skeleton h-[46px] w-[150px] rounded-[10px]" />
-            </div>
           </div>
         </div>
 

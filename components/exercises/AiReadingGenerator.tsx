@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ReadingText } from "@/lib/reading/texts";
 import CaseReader from "./CaseReader";
 import { LoadingDots, SkeletonLines } from "@/components/ui/Skeleton";
@@ -71,6 +71,9 @@ const SOURCES: { value: Source; label: string; hint: string; icon: ReactNode }[]
 const FIELD =
   "w-full rounded-[10px] border border-border bg-bg px-3 py-2.5 font-display text-text field-focus focus:outline-none";
 
+const GHOST =
+  "rounded-[10px] cursor-pointer border border-border px-3.5 py-2 font-display text-sm font-semibold text-muted transition-colors hover:text-text";
+
 /**
  * La pause de frappe qui déclenche la traduction. Plus longue que celle du
  * vocabulaire (650 ms) : chaque appel retraduit le texte entier, et chacun
@@ -78,9 +81,26 @@ const FIELD =
  */
 const TRANSLATE_DEBOUNCE_MS = 1200;
 
+/**
+ * Un collage qui fait au moins cette part du champ est un texte entier — fini,
+ * donc à annoter. En deçà, c'est un mot glissé dans un texte qu'on écrit.
+ */
+const WHOLE_PASTE_SHARE = 0.6;
+
+/** Un clic dans le panneau fait perdre le focus au champ sans quitter le texte. */
+const POINTER_INSIDE_MS = 800;
+
 /** Ce qui décide de retraduire : un espace de plus ou une ligne vide en fin de texte ne changent rien. */
 function normalizeDraft(text: string): string {
   return text.trim().replace(/[^\S\n]+/g, " ");
+}
+
+interface PastedReading {
+  text: ReadingText;
+  /** Le russe annoté, normalisé : ressortir du champ sans l'avoir changé ne relance rien. */
+  from: string;
+  titleFr: string | null;
+  summaryFr: string | null;
 }
 
 /**
@@ -88,26 +108,34 @@ function normalizeDraft(text: string): string {
  *
  * SON PROPRE TEXTE D'ABORD. Il vivait derrière une petite pastille, à côté
  * d'un gros bouton « Générer un texte » : on ne voyait que la génération.
- * Les deux chemins sont maintenant deux cartes de même taille, et « Mon
- * texte » est ouvert par défaut, son champ déjà sous les yeux.
+ * Les deux chemins sont deux cartes de même taille, et « Mon texte » est
+ * ouvert par défaut, son champ déjà sous les yeux.
  *
- * ÉCRIT EN FRANÇAIS, LU EN RUSSE. Ce qu'on a envie de lire — ce qu'on a fait
- * ce week-end, un message à écrire — on ne sait pas encore l'écrire en russe.
- * Le champ reconnaît la langue à l'alphabet : du russe collé part tel quel ;
- * du français est traduit à chaque pause de frappe, dans un second champ qui
- * se retouche, et c'est cette traduction qui est annotée.
+ * ÉCRIT EN FRANÇAIS, LU EN RUSSE. Le champ reconnaît la langue à l'alphabet :
+ * du russe collé part tel quel ; du français est traduit à chaque pause de
+ * frappe, dans un second champ qui se retouche, et c'est cette traduction qui
+ * est annotée.
  *
- * LU SANS ÊTRE ENREGISTRÉ. Un texte à soi s'annote, se lit, se devine et
- * s'explique sans rejoindre « Mes textes » : on colle un message pour le
- * comprendre, pas forcément pour le garder. « Enregistrer » le garde, avec
- * les explications déjà obtenues. Un texte généré, lui, l'est d'office.
+ * ANNOTÉ SANS BOUTON, LÀ OÙ IL A ÉTÉ ÉCRIT. Le texte s'annote dès qu'il est
+ * fini : collé en entier, tout de suite ; écrit, quand on quitte le champ (ou
+ * Ctrl+Entrée). Le lecteur prend alors la place du champ — rien à faire
+ * défiler — et « Modifier » y ramène.
+ *
+ * PAS À CHAQUE PAUSE DE FRAPPE. C'était le signal le plus naturel, et le plus
+ * cher : chaque pause aurait réannoté le texte entier — un texte du quota
+ * `reading` et jusqu'à 0,02 $ à chaque fois — pour un texte encore en train
+ * de s'écrire. La traduction, elle, suit la frappe : elle coûte cinq fois
+ * moins et se décompte ailleurs. Les déclencheurs retenus tombent là où l'on
+ * aurait cliqué le bouton qu'ils remplacent, et ne coûtent jamais plus que lui.
+ *
+ * LU SANS ÊTRE ENREGISTRÉ. Un texte à soi se lit, se devine et s'explique
+ * sans rejoindre « Mes textes » ; « Enregistrer » le garde, avec les
+ * explications déjà obtenues. Un texte généré, lui, l'est d'office.
  *
  * LE CAS EST LA PREMIÈRE QUESTION DE LA GÉNÉRATION, PLUS UNE OPTION CACHÉE.
  * Il vivait dans le panneau « Options », sous le niveau, la longueur et la
  * forme : le réglage qui fait l'intérêt du module était le dernier qu'on
  * voyait. Il est à découvert ; le reste, qu'on règle une fois, reste replié.
- *
- * Les deux chemins partagent la suite : chargement, plafond et lecture.
  */
 export default function AiReadingGenerator({
   onGenerated,
@@ -115,16 +143,17 @@ export default function AiReadingGenerator({
   onGenerated?: (id: string) => void;
 }) {
   const [source, setSource] = useState<Source>("paste");
-  const [loading, setLoading] = useState(false);
-  const [text, setText] = useState<ReadingText | null>(null);
-  const [completedTitle, setCompletedTitle] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Séparé de `error` : un plafond atteint n'est pas une panne et ne doit
+  // Séparé des erreurs : un plafond atteint n'est pas une panne et ne doit
   // pas s'afficher en rouge avec « réessayer » — rien ne passera avant
   // demain, ou avant l'abonnement.
-  const [blocked, setBlocked] = useState<{ quota: QuotaInfo; message: string } | null>(null);
-  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [blocked, setBlocked] = useState<{ quota: QuotaInfo; message: string; what: string } | null>(null);
 
+  // ─── Générer un texte ───────────────────────────────────────────
+  const [generating, setGenerating] = useState(false);
+  const [generated, setGenerated] = useState<ReadingText | null>(null);
+  const [completedTitle, setCompletedTitle] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   // ""= laisser le serveur prendre le niveau du profil, ce qui évite au
   // client d'aller le chercher juste pour préremplir un menu.
   const [level, setLevel] = useState<CefrLevel | "">("");
@@ -132,24 +161,41 @@ export default function AiReadingGenerator({
   const [style, setStyle] = useState<ReadingStyle>("narrative");
   const [focusCase, setFocusCase] = useState<CaseId | "">("");
 
+  // ─── Mon texte ──────────────────────────────────────────────────
   const [pasted, setPasted] = useState("");
   const [pastedTitle, setPastedTitle] = useState("");
-  const pasteRef = useRef<HTMLTextAreaElement>(null);
-
   // La traduction du français, et le français exact dont elle vient : c'est
   // ce couple qui dit si le russe affiché correspond encore à ce qui est écrit.
   const [translation, setTranslation] = useState("");
   const [translatedFrom, setTranslatedFrom] = useState<string | null>(null);
   const [translateError, setTranslateError] = useState<{ draft: string; message: string } | null>(null);
-  const requestId = useRef(0);
-
-  // Ce que l'annotation rend à côté du texte, pour l'enregistrer tel quel s'il est gardé.
-  const [extras, setExtras] = useState<{ titleFr: string | null; summaryFr: string | null }>({
-    titleFr: null,
-    summaryFr: null,
-  });
+  const [reading, setReading] = useState<PastedReading | null>(null);
+  const [editing, setEditing] = useState(true);
+  const [annotating, setAnnotating] = useState(false);
+  const [annotateError, setAnnotateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const sourcesRef = useRef<HTMLDivElement>(null);
+  // Lus au moment d'annoter, qui peut venir d'une réponse de traduction : un
+  // état capturé plus tôt y serait périmé.
+  const titleRef = useRef("");
+  const annotatedFrom = useRef<string | null>(null);
+  const annotatingNow = useRef(false);
+  // L'annotation attend la traduction : demandée en quittant le champ, ou
+  // par un texte français collé en entier.
+  const annotateWhenTranslated = useRef(false);
+  const wholePaste = useRef(false);
+  const pointerInsideAt = useRef(0);
+  const translateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    const timer = translateTimer;
+    return () => clearTimeout(timer.current);
+  }, []);
 
   const language = detectTextLanguage(pasted);
   const writingFrench = language === "fr";
@@ -158,160 +204,239 @@ export default function AiReadingGenerator({
   // illisible se voit avant d'envoyer, pas après un aller-retour.
   const frenchCheck = draft && language !== "ru" ? checkFrenchText(draft) : null;
   const frenchReady = writingFrench && frenchCheck?.ok === true;
-  const failedDraft = translateError?.draft ?? null;
   // Une traduction attendue : la pause de frappe court, ou la réponse est en route.
-  const translationPending = frenchReady && draft !== translatedFrom && failedDraft !== draft;
+  const translationPending =
+    frenchReady && draft !== translatedFrom && translateError?.draft !== draft;
   // Ce qui part à l'annotation : le russe collé, ou la traduction du français.
   const russian = writingFrench ? translation : pasted;
   const pasteCheck = russian.trim() ? checkManualText(russian) : null;
   const canAnnotate =
     pasteCheck?.ok === true && (!writingFrench || (frenchReady && draft === translatedFrom));
 
-  useEffect(() => {
-    if (!frenchReady || draft === translatedFrom || draft === failedDraft) return;
+  // ─── Générer ────────────────────────────────────────────────────
 
-    // NUMÉROTÉE, PAS ANNULÉE — voir components/vocabulary/AddWordForm.tsx,
-    // où `AbortController` laissait fuir un `AbortError` jusqu'à l'écran.
-    // Une réponse qui n'est plus la dernière attendue est simplement jetée.
-    const id = ++requestId.current;
-    const timer = setTimeout(async () => {
-      try {
-        const { ru } = await translateReadingText(draft);
-        if (id !== requestId.current) return;
-        setTranslation(ru);
-        setTranslatedFrom(draft);
-        setTranslateError(null);
-        setBlocked(null);
-      } catch (err) {
-        if (id !== requestId.current) return;
-        if (isQuotaError(err)) {
-          setBlocked({ quota: err.quota, message: err.message });
-        }
-        // Retenu pour CE français : sans cela, l'effet reprendrait aussitôt
-        // et relancerait en boucle une demande qui vient d'échouer. Le
-        // prochain mot tapé, ou « Réessayer », la relancent.
-        setTranslateError({
-          draft,
-          message: isQuotaError(err)
-            ? "Traduction automatique en pause."
-            : err instanceof Error && err.message !== "Erreur réseau"
-              ? err.message
-              : "Traduction indisponible pour le moment.",
-        });
-      }
-    }, TRANSLATE_DEBOUNCE_MS);
-
-    return () => {
-      clearTimeout(timer);
-      requestId.current += 1;
-    };
-  }, [frenchReady, draft, translatedFrom, failedDraft]);
-
-  async function run(
-    request: () => Promise<{
-      text: ReadingText;
-      id: string | null;
-      titleFr?: string | null;
-      summaryFr?: string | null;
-    }>,
-    describe: (err: unknown) => string,
-  ): Promise<boolean> {
-    setLoading(true);
-    setError(null);
-    setBlocked(null);
-    setCompletedTitle(null);
-    setSaveError(null);
-    try {
-      const { text: received, id, titleFr, summaryFr } = await request();
-      // L'id validé côté client vaut toujours "ai-generated" (placeholder) —
-      // remplacé par le vrai id sauvegardé en base dès qu'on l'a : c'est lui
-      // que la fin de texte et les explications de l'IA transmettent. Un
-      // texte collé le garde tant qu'il n'est pas enregistré.
-      setText(id ? { ...received, id } : received);
-      setExtras({ titleFr: titleFr ?? null, summaryFr: summaryFr ?? null });
-      if (id) onGenerated?.(id);
-      return true;
-    } catch (err) {
-      if (isQuotaError(err)) {
-        setBlocked({ quota: err.quota, message: err.message });
-      } else if (err instanceof Error && err.message === "Non authentifié") {
-        setError("Connecte-toi pour lire un texte personnalisé.");
-      } else {
-        setError(describe(err));
-      }
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function generate() {
+  async function generate() {
     const options: GenerateReadingOptions = { length, style };
     if (level) options.level = level;
     if (focusCase) options.focusCase = focusCase;
-    void run(
-      () => generateReadingText(options),
-      () => "Génération indisponible pour le moment.",
-    );
-  }
-
-  async function annotate() {
-    if (!canAnnotate) return;
-    const done = await run(
-      () => annotateReadingText({ text: russian, title: pastedTitle.trim() || undefined }),
-      // Les refus du serveur sont écrits pour l'apprenant (« Le texte doit
-      // être en russe… ») : on les montre tels quels.
-      (err) =>
-        err instanceof Error && err.message !== "Erreur réseau"
-          ? err.message
-          : "Annotation indisponible pour le moment.",
-    );
-    // Le texte est à l'écran : les champs se vident pour le suivant.
-    if (done) {
-      setPasted("");
-      setPastedTitle("");
-      setTranslation("");
-      setTranslatedFrom(null);
-      setTranslateError(null);
+    setGenerating(true);
+    setError(null);
+    setBlocked(null);
+    setCompletedTitle(null);
+    try {
+      const { text: received, id } = await generateReadingText(options);
+      // L'id validé côté client vaut toujours "ai-generated" (placeholder) —
+      // remplacé par le vrai id sauvegardé en base dès qu'on l'a : c'est lui
+      // que la fin de texte et les explications de l'IA transmettent.
+      setGenerated(id ? { ...received, id } : received);
+      if (id) onGenerated?.(id);
+    } catch (err) {
+      if (isQuotaError(err)) {
+        setBlocked({ quota: err.quota, message: err.message, what: "les textes générés" });
+      } else if (err instanceof Error && err.message === "Non authentifié") {
+        setError("Connecte-toi pour lire un texte personnalisé.");
+      } else {
+        setError("Génération indisponible pour le moment.");
+      }
+    } finally {
+      setGenerating(false);
     }
   }
 
-  function chooseSource(next: Source) {
-    setSource(next);
-    setError(null);
+  // ─── Mon texte ──────────────────────────────────────────────────
+
+  async function annotate(text: string) {
+    const from = normalizeDraft(text);
+    if (annotatingNow.current || !checkManualText(text).ok) return;
+    // Le russe n'a pas changé depuis la dernière annotation : on y revient, sans appel.
+    if (from === annotatedFrom.current) {
+      setEditing(false);
+      return;
+    }
+    annotatingNow.current = true;
+    setAnnotating(true);
+    setAnnotateError(null);
     setBlocked(null);
+    try {
+      const result = await annotateReadingText({ text, title: titleRef.current.trim() || undefined });
+      annotatedFrom.current = from;
+      setReading({ text: result.text, from, titleFr: result.titleFr, summaryFr: result.summaryFr });
+      setSaveError(null);
+      setEditing(false);
+    } catch (err) {
+      if (isQuotaError(err)) {
+        setBlocked({ quota: err.quota, message: err.message, what: "les textes à toi" });
+      } else if (err instanceof Error && err.message === "Non authentifié") {
+        setAnnotateError("Connecte-toi pour lire un texte à toi.");
+      } else {
+        // Les refus du serveur sont écrits pour l'apprenant (« Le texte doit
+        // être en russe… ») : on les montre tels quels.
+        setAnnotateError(
+          err instanceof Error && err.message !== "Erreur réseau"
+            ? err.message
+            : "Annotation indisponible pour le moment.",
+        );
+      }
+    } finally {
+      annotatingNow.current = false;
+      setAnnotating(false);
+    }
+  }
+
+  /**
+   * NUMÉROTÉE, PAS ANNULÉE — voir components/vocabulary/AddWordForm.tsx, où
+   * `AbortController` laissait fuir un `AbortError` jusqu'à l'écran. Une
+   * réponse qui n'est plus la dernière attendue est simplement jetée.
+   */
+  async function translate(french: string) {
+    const id = ++requestId.current;
+    try {
+      const { ru } = await translateReadingText(french);
+      if (id !== requestId.current) return;
+      setTranslation(ru);
+      setTranslatedFrom(french);
+      setTranslateError(null);
+      setBlocked(null);
+      if (annotateWhenTranslated.current) {
+        annotateWhenTranslated.current = false;
+        void annotate(ru);
+      }
+    } catch (err) {
+      if (id !== requestId.current) return;
+      annotateWhenTranslated.current = false;
+      if (isQuotaError(err)) {
+        setBlocked({ quota: err.quota, message: err.message, what: "la traduction automatique" });
+      }
+      // Retenu pour CE français : le prochain mot tapé, ou « Réessayer », la relancent.
+      setTranslateError({
+        draft: french,
+        message: isQuotaError(err)
+          ? "Traduction automatique en pause."
+          : err instanceof Error && err.message !== "Erreur réseau"
+            ? err.message
+            : "Traduction indisponible pour le moment.",
+      });
+    }
+  }
+
+  function changeDraft(value: string) {
+    const whole = wholePaste.current;
+    wholePaste.current = false;
+    setPasted(value);
+    const next = normalizeDraft(value);
+    if (next === draft && !whole) return;
+
+    setAnnotateError(null);
+    clearTimeout(translateTimer.current);
+    requestId.current += 1;
+    annotateWhenTranslated.current = false;
+
+    const lang = detectTextLanguage(value);
+    if (lang === "ru") {
+      // Un texte russe collé en entier est fini : il s'annote tout de suite.
+      if (whole) void annotate(value);
+      return;
+    }
+    if (lang !== "fr" || !checkFrenchText(next).ok) return;
+    // Un texte français collé en entier est fini aussi : traduit sans
+    // attendre la pause, puis annoté dès que la traduction arrive.
+    if (whole) annotateWhenTranslated.current = true;
+    if (next === translatedFrom) {
+      if (whole) {
+        annotateWhenTranslated.current = false;
+        void annotate(translation);
+      }
+      return;
+    }
+    translateTimer.current = setTimeout(() => void translate(next), whole ? 0 : TRANSLATE_DEBOUNCE_MS);
+  }
+
+  /** Le texte est fini : champ quitté, ou Ctrl+Entrée. */
+  function requestAnnotation() {
+    if (writingFrench) {
+      if (canAnnotate) void annotate(translation);
+      // La traduction n'est pas encore là : l'annotation la suivra.
+      else if (translationPending) annotateWhenTranslated.current = true;
+      return;
+    }
+    if (pasteCheck?.ok) void annotate(pasted);
+  }
+
+  function leaveText(e: FocusEvent<HTMLDivElement>) {
+    const next = e.relatedTarget as Node | null;
+    // Vers un autre champ du texte (titre, traduction), vers les cartes, ou
+    // un clic ailleurs dans le panneau : on n'a pas quitté le texte.
+    if (next && (panelRef.current?.contains(next) || sourcesRef.current?.contains(next))) return;
+    if (Date.now() - pointerInsideAt.current < POINTER_INSIDE_MS) return;
+    // Changer d'onglet fait aussi perdre le focus : ce n'est pas avoir fini.
+    setTimeout(() => {
+      if (document.hasFocus()) requestAnnotation();
+    }, 0);
+  }
+
+  function submitOnCtrlEnter(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      requestAnnotation();
+    }
+  }
+
+  function editText() {
+    setEditing(true);
+    requestAnimationFrame(() => pasteRef.current?.focus());
+  }
+
+  function newText() {
+    clearTimeout(translateTimer.current);
+    requestId.current += 1;
+    annotateWhenTranslated.current = false;
+    annotatedFrom.current = null;
+    titleRef.current = "";
+    setPasted("");
+    setPastedTitle("");
+    setTranslation("");
+    setTranslatedFrom(null);
+    setTranslateError(null);
+    setReading(null);
+    setAnnotateError(null);
+    setSaveError(null);
+    setEditing(true);
+    requestAnimationFrame(() => pasteRef.current?.focus());
   }
 
   // Posée sur le texte affiché : enregistré ensuite, il garde l'explication.
   function keepExplanation(sentenceIndex: number, explained: SentenceCases) {
-    setText(
+    setReading(
       (current) =>
         current && {
           ...current,
-          sentences: current.sentences.map((sentence, i) =>
-            i === sentenceIndex ? withExplanation(sentence, explained) : sentence,
-          ),
+          text: {
+            ...current.text,
+            sentences: current.text.sentences.map((sentence, i) =>
+              i === sentenceIndex ? withExplanation(sentence, explained) : sentence,
+            ),
+          },
         },
     );
   }
 
-  const saved = text !== null && text.id !== "ai-generated";
+  const pastedSaved = reading !== null && reading.text.id !== "ai-generated";
 
   async function save() {
-    if (!text || saved || saving) return;
+    if (!reading || pastedSaved || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
       const { id } = await saveReadingText({
-        title: text.title,
-        titleFr: extras.titleFr,
-        summaryFr: extras.summaryFr,
-        level: text.level,
-        sentences: text.sentences,
+        title: reading.text.title,
+        titleFr: reading.titleFr,
+        summaryFr: reading.summaryFr,
+        level: reading.text.level,
+        sentences: reading.text.sentences,
       });
       // L'identifiant change, pas le russe : le lecteur garde ses réponses
       // et ses explications (voir CaseReader), et les suivantes iront en base.
-      setText((current) => current && { ...current, id });
+      setReading((current) => current && { ...current, text: { ...current.text, id } });
       onGenerated?.(id);
     } catch (err) {
       setSaveError(
@@ -324,12 +449,19 @@ export default function AiReadingGenerator({
     }
   }
 
+  function chooseSource(next: Source) {
+    setSource(next);
+    setError(null);
+    setBlocked(null);
+  }
+
   const pasting = source === "paste";
   const showTranslation = writingFrench && (translation !== "" || translationPending || !!translateError);
 
   return (
     <div className="rounded-[20px] border border-dashed border-accent/50 bg-accent/5 p-6">
       <div
+        ref={sourcesRef}
         role="radiogroup"
         aria-label="Origine du texte"
         className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2"
@@ -366,12 +498,70 @@ export default function AiReadingGenerator({
         })}
       </div>
 
-      {pasting ? (
-        <div className="space-y-2.5">
+      {pasting && reading && !editing && (
+        <div className="animate-fade-in">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="rounded-full border border-border px-2.5 py-0.5 font-display text-xs font-semibold text-muted">
+                {reading.text.level}
+              </span>
+              <h4 className="font-display text-xl font-bold">{reading.text.title}</h4>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={editText} className={GHOST}>
+                Modifier
+              </button>
+              <button type="button" onClick={newText} className={GHOST}>
+                Nouveau texte
+              </button>
+              {pastedSaved ? (
+                <span className="font-display text-sm font-semibold text-accent-ink">✓ Dans « Mes textes »</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={saving}
+                  className="btn btn-outline rounded-[10px] px-4 py-2 font-display text-sm font-semibold text-text disabled:opacity-60"
+                >
+                  {saving ? "Enregistrement…" : "Enregistrer dans Mes textes"}
+                </button>
+              )}
+            </div>
+          </div>
+          {!pastedSaved && (
+            <p
+              role={saveError ? "alert" : undefined}
+              className={`mb-3 font-display text-xs ${saveError ? "text-danger" : "text-muted"}`}
+            >
+              {saveError ?? "Pas enregistré : ce texte disparaît si tu en annotes un autre ou quittes la page."}
+            </p>
+          )}
+          {/* Jamais refermé à la fin : il est ici à la place du champ, et
+              le refermer perdrait un texte peut-être pas enregistré. */}
+          <CaseReader text={reading.text} onExplained={keepExplanation} />
+        </div>
+      )}
+
+      {pasting && (!reading || editing) && (
+        <div
+          ref={panelRef}
+          className="space-y-2.5"
+          onBlur={leaveText}
+          onFocus={() => {
+            // De retour dans le champ : l'annotation qui attendait la traduction n'a plus lieu d'être.
+            annotateWhenTranslated.current = false;
+          }}
+          onPointerDownCapture={() => {
+            pointerInsideAt.current = Date.now();
+          }}
+        >
           <input
             type="text"
             value={pastedTitle}
-            onChange={(e) => setPastedTitle(e.target.value)}
+            onChange={(e) => {
+              setPastedTitle(e.target.value);
+              titleRef.current = e.target.value;
+            }}
             maxLength={80}
             placeholder="Titre (facultatif)"
             aria-label="Titre du texte (facultatif)"
@@ -380,21 +570,38 @@ export default function AiReadingGenerator({
           <textarea
             ref={pasteRef}
             value={pasted}
-            onChange={(e) => setPasted(e.target.value)}
+            onChange={(e) => changeDraft(e.target.value)}
+            onPaste={(e) => {
+              const clip = e.clipboardData.getData("text").trim().length;
+              const field = e.currentTarget;
+              const kept = field.value.trim().length - (field.selectionEnd - field.selectionStart);
+              wholePaste.current = clip > 0 && clip >= (Math.max(kept, 0) + clip) * WHOLE_PASTE_SHARE;
+            }}
+            onKeyDown={submitOnCtrlEnter}
+            readOnly={annotating}
+            aria-busy={annotating}
             rows={7}
             lang={language === "ru" ? "ru" : "fr"}
             spellCheck={language !== "ru"}
             placeholder="Écris ici en français — la traduction russe arrive toute seule. Ou colle directement un texte russe."
             aria-label="Ton texte, en français ou en russe"
             aria-describedby="paste-status"
-            className={`${FIELD} block resize-y text-base leading-relaxed`}
+            className={`${FIELD} block resize-y text-base leading-relaxed transition-opacity ${annotating ? "opacity-60" : ""}`}
           />
           <div
             id="paste-status"
-            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-display text-xs"
+            className="flex min-h-5 flex-wrap items-center justify-between gap-x-4 gap-y-1 font-display text-xs"
           >
-            {!draft ? (
-              <span className="text-muted">Compte comme un texte généré.</span>
+            {annotating ? (
+              <LoadingDots label="Annotation mot à mot…" />
+            ) : annotateError ? (
+              <span role="alert" className="text-danger">
+                {annotateError}
+              </span>
+            ) : !draft ? (
+              <span className="text-muted">
+                Colle un texte : il s&apos;annote aussitôt. Écrit, il s&apos;annote quand tu quittes le champ.
+              </span>
             ) : language === "ru" ? (
               pasteCheck && !pasteCheck.ok ? (
                 <span className="text-danger">{pasteCheck.error}</span>
@@ -403,13 +610,15 @@ export default function AiReadingGenerator({
                   {pasteCheck?.ok
                     ? `Russe : ${pasteCheck.words} mots, ${pasteCheck.sentences.length} phrase${pasteCheck.sentences.length > 1 ? "s" : ""}. `
                     : ""}
-                  Compte comme un texte généré.
+                  Fini&nbsp;? Quitte le champ (ou Ctrl+Entrée) : il s&apos;annote ici.
                 </span>
               )
             ) : frenchCheck && !frenchCheck.ok ? (
               <span className="text-danger">{frenchCheck.error}</span>
             ) : (
-              <span className="text-muted">Français : traduit en russe ci-dessous.</span>
+              <span className="text-muted">
+                Français : traduit en russe ci-dessous. Fini&nbsp;? Quitte le champ : il s&apos;annote ici.
+              </span>
             )}
             <span
               className={`tabular-nums ${pasted.trim().length > MANUAL_TEXT_MAX_CHARS ? "text-danger" : "text-muted"}`}
@@ -431,7 +640,10 @@ export default function AiReadingGenerator({
                   {translateError.message}{" "}
                   <button
                     type="button"
-                    onClick={() => setTranslateError(null)}
+                    onClick={() => {
+                      setTranslateError(null);
+                      void translate(draft);
+                    }}
                     className="font-semibold underline underline-offset-2"
                   >
                     Réessayer
@@ -443,13 +655,15 @@ export default function AiReadingGenerator({
                   <textarea
                     value={translation}
                     onChange={(e) => setTranslation(e.target.value)}
+                    onKeyDown={submitOnCtrlEnter}
+                    readOnly={annotating}
                     rows={6}
                     lang="ru"
                     spellCheck={false}
                     aria-label="Traduction russe, à retoucher si besoin"
                     aria-describedby="translation-status"
                     className={`${FIELD} block resize-y text-base leading-relaxed transition-opacity ${
-                      translationPending ? "opacity-60" : ""
+                      translationPending || annotating ? "opacity-60" : ""
                     }`}
                   />
                   <div
@@ -463,7 +677,7 @@ export default function AiReadingGenerator({
                         {pasteCheck?.ok
                           ? `${pasteCheck.words} mots, ${pasteCheck.sentences.length} phrase${pasteCheck.sentences.length > 1 ? "s" : ""}. `
                           : ""}
-                        Tu peux la retoucher avant d&apos;annoter.
+                        Tu peux la retoucher avant qu&apos;elle s&apos;annote.
                       </span>
                     )}
                     <span
@@ -478,18 +692,10 @@ export default function AiReadingGenerator({
               )}
             </div>
           )}
-
-          <div className="flex justify-end pt-1.5">
-            <button
-              onClick={annotate}
-              disabled={loading || !canAnnotate}
-              className="btn btn-primary btn-sheen rounded-[10px] cursor-pointer px-5 py-3 font-display text-sm disabled:cursor-default disabled:opacity-60"
-            >
-              {loading ? "Annotation…" : writingFrench ? "Annoter la traduction" : "Annoter le texte"}
-            </button>
-          </div>
         </div>
-      ) : (
+      )}
+
+      {!pasting && (
         <>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
@@ -511,11 +717,11 @@ export default function AiReadingGenerator({
                 Options {optionsOpen ? "▲" : "▼"}
               </button>
               <button
-                onClick={generate}
-                disabled={loading}
+                onClick={() => void generate()}
+                disabled={generating}
                 className="btn btn-primary btn-sheen rounded-[10px] cursor-pointer px-5 py-3 font-display text-sm disabled:opacity-60"
               >
-                {loading ? "Génération…" : "Générer un texte"}
+                {generating ? "Génération…" : "Générer un texte"}
               </button>
             </div>
           </div>
@@ -616,21 +822,15 @@ export default function AiReadingGenerator({
 
       {blocked && (
         <div className="mt-5">
-          <PaywallNotice
-            quota={blocked.quota}
-            message={blocked.message}
-            what={pasting ? "la traduction et les textes à toi" : "les textes générés"}
-          />
+          <PaywallNotice quota={blocked.quota} message={blocked.message} what={blocked.what} />
         </div>
       )}
-      {error && <p className="mt-4 font-display text-sm text-danger">{error}</p>}
+      {!pasting && error && <p className="mt-4 font-display text-sm text-danger">{error}</p>}
 
-      {loading && (
+      {!pasting && generating && (
         <div className="mt-6 animate-fade-in">
           <div className="mb-4">
-            <LoadingDots
-              label={pasting ? "Annotation du texte, mot à mot…" : "Rédaction et annotation du texte…"}
-            />
+            <LoadingDots label="Rédaction et annotation du texte…" />
           </div>
           <div className="mb-3 flex items-center gap-2">
             <div className="skeleton h-5 w-12 rounded-full" />
@@ -647,66 +847,41 @@ export default function AiReadingGenerator({
           il a été enregistré à la génération et reste accessible dans
           « Mes textes », ce que la confirmation dit explicitement pour que
           la fermeture ne ressemble pas à une perte. */}
-      {!loading && !text && completedTitle && (
+      {!pasting && !generating && !generated && completedTitle && (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-accent/40 bg-accent/10 px-5 py-4 animate-fade-in">
           <p className="font-display text-sm text-text">
             <span className="font-semibold text-accent-ink">✓ Texte terminé</span> — «&nbsp;
             {completedTitle}&nbsp;» reste dans « Mes textes » ci-dessous.
           </p>
           <button
-            onClick={() => {
-              if (!pasting) return generate();
-              setCompletedTitle(null);
-              pasteRef.current?.focus();
-            }}
+            onClick={() => void generate()}
             className="btn btn-primary btn-sheen rounded-[10px] px-4 py-2 font-display text-sm"
           >
-            {pasting ? "Écrire un autre texte" : "Un autre texte"}
+            Un autre texte
           </button>
         </div>
       )}
 
-      {!loading && text && (
+      {!pasting && !generating && generated && (
         <div className="mt-6 animate-fade-in">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div className="flex min-w-0 items-center gap-2">
               <span className="rounded-full border border-border px-2.5 py-0.5 font-display text-xs font-semibold text-muted">
-                {text.level}
+                {generated.level}
               </span>
-              <h4 className="font-display text-xl font-bold">{text.title}</h4>
+              <h4 className="font-display text-xl font-bold">{generated.title}</h4>
             </div>
-            {saved ? (
+            {generated.id !== "ai-generated" && (
               <span className="font-display text-sm font-semibold text-accent-ink">✓ Dans « Mes textes »</span>
-            ) : (
-              <button
-                type="button"
-                onClick={save}
-                disabled={saving}
-                className="btn btn-outline rounded-[10px] px-4 py-2 font-display text-sm font-semibold text-text disabled:opacity-60"
-              >
-                {saving ? "Enregistrement…" : "Enregistrer dans Mes textes"}
-              </button>
             )}
           </div>
-          {!saved && (
-            <p
-              role={saveError ? "alert" : undefined}
-              className={`mb-3 font-display text-xs ${saveError ? "text-danger" : "text-muted"}`}
-            >
-              {saveError ?? "Pas enregistré : ce texte disparaît si tu en lis un autre ou quittes la page."}
-            </p>
-          )}
-          {/* Un texte enregistré se referme une fois terminé : il reste dans
-              « Mes textes ». Un texte non enregistré reste ouvert — le
-              refermer le perdrait. */}
           <CaseReader
-            text={text}
-            onExplained={keepExplanation}
+            text={generated}
             onCompleted={
-              saved
+              generated.id !== "ai-generated"
                 ? () => {
-                    setCompletedTitle(text.title);
-                    setText(null);
+                    setCompletedTitle(generated.title);
+                    setGenerated(null);
                   }
                 : undefined
             }

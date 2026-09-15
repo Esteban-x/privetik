@@ -427,9 +427,13 @@ appelé « Lire les cas », puis « Textes » quand on a pu y lire les siens.
 - **Mon texte** : écrit en français — traduit en russe à chaque pause de
   frappe (`app/api/ai/reading/translate`, poste `suggest`), dans un champ qui
   se retouche — ou collé en russe, puis annoté mot à mot
-  (`app/api/ai/reading/annotate`, poste `reading`). Il se lit, se devine et
-  s'explique **sans être enregistré** ; « Enregistrer dans Mes textes » le
-  garde, explications comprises (`POST /api/reading/mine`).
+  (`app/api/ai/reading/annotate`, poste `reading`). **Sans bouton** : collé en
+  entier, il s'annote aussitôt ; écrit, quand on quitte le champ (ou
+  Ctrl+Entrée) — jamais à une simple pause de frappe, qui réannoterait le
+  texte entier à chaque fois. Le lecteur prend la place du champ, et
+  « Modifier » y ramène. Il se lit, se devine et s'explique **sans être
+  enregistré** ; « Enregistrer dans Mes textes » le garde, explications
+  comprises (`POST /api/reading/mine`).
 - **Générer un texte** : écrit par l'IA à son niveau, autour d'un cas choisi,
   et enregistré d'office.
 
