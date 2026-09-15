@@ -6,7 +6,12 @@ import type { CaseWhy, ComprehensionQuestion, GlossedWord, ReadingText } from "@
 import { CASES, CASES_BY_LEARNING_ORDER } from "@/lib/grammar/cases";
 import type { CaseId, CaseInfo } from "@/lib/grammar/types";
 import { caseHint } from "@/lib/reading/case-hints";
-import { completeReadingText, explainSentenceCases } from "@/lib/reading/client";
+import {
+  completeReadingText,
+  explainSentenceCases,
+  explainUnsavedSentence,
+  type SentenceCases,
+} from "@/lib/reading/client";
 import { addReadingWord, READING_LIST_NAME, type AddWordState } from "@/lib/reading/add-to-vocab";
 import { isQuotaError, type QuotaInfo } from "@/lib/billing/quota-client";
 import { speakRu, speakRuToEnd, stopSpeaking } from "@/lib/vocabulary/speech";
@@ -75,9 +80,16 @@ function cleanWord(ru: string): string {
 export default function CaseReader({
   text,
   onCompleted,
+  onExplained,
   readOnly = false,
 }: {
   text: ReadingText;
+  /**
+   * Une phrase vient d'être expliquée par l'IA. Un texte enregistré garde
+   * l'explication en base ; un texte non enregistré n'a que son parent pour
+   * la garder — et l'enregistrer avec lui s'il est gardé.
+   */
+  onExplained?: (sentenceIndex: number, explained: SentenceCases) => void;
   /**
    * Quand le parent le fournit, c'est LUI qui décide de la suite (le
    * générateur referme le texte). Sans lui — pages /reading/[id] et
@@ -123,9 +135,19 @@ export default function CaseReader({
 
   // Un nouveau texte repart de zéro — comparaison pendant le rendu plutôt
   // qu'un effet (même motif que `seenPathname` dans NavBar).
-  const [seenTextId, setSeenTextId] = useState(text.id);
-  if (text.id !== seenTextId) {
-    setSeenTextId(text.id);
+  //
+  // UN TEXTE, C'EST SON RUSSE, PAS SON IDENTIFIANT. Un texte collé change
+  // d'identifiant en cours de lecture, quand on l'enregistre : comparés sur
+  // l'identifiant, les réponses et les explications déjà obtenues auraient
+  // disparu au clic. Et deux textes non enregistrés partagent le même
+  // identifiant de remplacement : le second aurait hérité du premier.
+  const identity = useMemo(
+    () => text.sentences.map((sentence) => sentence.map((word) => word.ru).join(" ")).join("\n"),
+    [text.sentences]
+  );
+  const [seenIdentity, setSeenIdentity] = useState(identity);
+  if (identity !== seenIdentity) {
+    setSeenIdentity(identity);
     setMode("read");
     setActive(null);
     setHighlight(null);
@@ -169,8 +191,9 @@ export default function CaseReader({
   const quizDone = quizItems.length > 0 && answeredCount === quizItems.length;
 
   // Un texte affiché sans avoir été enregistré n'a pas d'identifiant à
-  // transmettre : la route relit le texte en base, jamais celui du client.
-  const canAskAi = !readOnly && text.id !== "ai-generated";
+  // transmettre : sa phrase part avec la demande (voir app/api/reading/explain).
+  const saved = text.id !== "ai-generated";
+  const canAskAi = !readOnly;
 
   // Échap referme l'analyse, comme n'importe quel panneau.
   useEffect(() => {
@@ -233,11 +256,14 @@ export default function CaseReader({
   async function explain(s: number) {
     setHelp((prev) => ({ ...prev, [s]: { status: "loading" } }));
     try {
-      const result = await explainSentenceCases(text.id, s);
+      const result = saved
+        ? await explainSentenceCases(text.id, s)
+        : await explainUnsavedSentence(text.sentences[s]);
       setHelp((prev) => ({
         ...prev,
         [s]: { status: "done", translation: result.translation, words: result.words },
       }));
+      onExplained?.(s, result);
     } catch (err) {
       setHelp((prev) => ({
         ...prev,
@@ -772,7 +798,7 @@ function WordPanel({
                 pose l'écart, aligne leurs milieux, et laisse un état qui
                 prend toute la largeur (attente, quota) pousser le lien à la
                 ligne. */}
-            <div className="@container mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
               {canAskAi && !why && <AiHelp state={help} onExplain={onExplain} />}
               <Link
                 href={`/cases/${info.id}`}
@@ -901,20 +927,13 @@ function WhyBody({
  */
 function AiHelp({ state, onExplain }: { state: SentenceHelp | undefined; onExplain: () => void }) {
   if (!state) {
-    // DEUX LONGUEURS, SELON LA PLACE DU PANNEAU. `.btn` ne passe jamais à la
-    // ligne : sur un écran de 320 px, le libellé complet débordait et le
-    // bouton le coupait en plein mot. La rangée est un conteneur de requête,
-    // le libellé suit donc la largeur réelle du panneau, pas celle de l'écran.
+    // « EXPLIQUER », ET RIEN DE PLUS. L'étincelle dit déjà que c'est l'IA, et
+    // le panneau ouvert sous la phrase dit ce qui sera expliqué. « Expliquer
+    // cette phrase avec l'IA » était le libellé le plus lourd du panneau — au
+    // point de lui faire une version courte pour les écrans étroits.
     return (
-      <Button
-        variant="ai"
-        size="sm"
-        onClick={onExplain}
-        icon={<AiSpark className="h-4 w-4 shrink-0" />}
-        className="max-w-full"
-      >
-        <span className="@min-[16.5rem]:hidden">Expliquer avec l&apos;IA</span>
-        <span className="hidden @min-[16.5rem]:inline">Expliquer cette phrase avec l&apos;IA</span>
+      <Button variant="ai" size="sm" onClick={onExplain} icon={<AiSpark className="h-4 w-4 shrink-0" />}>
+        Expliquer
       </Button>
     );
   }

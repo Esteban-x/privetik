@@ -37,7 +37,7 @@ const MEMBER_TABS = [
   { href: "/cours", label: "Cours", Icon: BookIcon },
   { href: "/exercices", label: "Exercices", Icon: TargetIcon },
   { href: "/vocabulary", label: "Vocabulaire", Icon: CardsIcon },
-  { href: "/reading", label: "Lire les cas", Icon: TextIcon },
+  { href: "/reading", label: "Textes", Icon: TextIcon },
   // « Tableau de bord » ne tient pas dans un cinquième de 375 px. « Progrès »
   // n'est pas un raccourci arbitraire : série, XP, précision et niveau sont
   // tout ce que cette page contient. La barre du bureau, elle, a la place du
@@ -58,7 +58,7 @@ const VISITOR_TABS = [
   { href: "/cours", label: "Cours", Icon: BookIcon },
   { href: "/exercices", label: "Exercices", Icon: TargetIcon },
   { href: "/vocabulary", label: "Vocabulaire", Icon: CardsIcon },
-  { href: "/reading", label: "Lire les cas", Icon: TextIcon },
+  { href: "/reading", label: "Textes", Icon: TextIcon },
   { href: "/premium", label: "Tarifs", Icon: ChartIcon },
 ] as const;
 

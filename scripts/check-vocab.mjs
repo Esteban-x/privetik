@@ -37,6 +37,8 @@ const { ANSWER_LANG, PROMPT_LANG, RECOGNITION_ERRORS, MAX_LISTEN_MS, END_GRACE_M
 const H = await jiti.import("../lib/reading/case-hints.ts");
 const X = await jiti.import("../lib/reading/explanation.ts");
 const M = await jiti.import("../lib/reading/manual.ts");
+const READ_VALIDATE = await jiti.import("../lib/reading/validate.ts");
+const READ_CLIENT = await jiti.import("../lib/reading/client.ts");
 const { TRIGGERS } = await jiti.import("../lib/grammar/triggers.ts");
 
 const failures = [];
@@ -1125,6 +1127,56 @@ for (const text of T.READING_TEXTS) {
   require_(
     /"nom", "gen", "dat", "acc", "ins" ou "pre"/.test(prompt) && /recopié/.test(prompt) && /DONNÉE/.test(prompt),
     "texte collé : le prompt d'annotation a perdu ses codes de cas, le mot recopié ou sa mise en garde"
+  );
+}
+
+// ─── Texte lu sans être enregistré : ce que le navigateur renvoie ──
+// Expliqué ou enregistré, il vient du client : seule sa forme connue passe,
+// et « relue à la main » ne se reprend jamais de lui.
+{
+  const sent = [
+    [
+      { ru: "Я", gloss: "je", case: "nominative", caseStatus: "confirmed", sentenceFr: "Je vais à l'école.", why: { reason: "Sujet du verbe « иду ».", source: "reviewed", lemma: "я", number: "singular" } },
+      { ru: "иду", gloss: "vais", case: "verbal", why: { reason: "Pas de cas." } },
+      { ru: "в", gloss: "dans", sentenceFr: "posée sur le mauvais mot" },
+      { ru: "школу.", gloss: "école", case: "accusative", why: { reason: "", source: "ai" } },
+    ],
+  ];
+  const kept = READ_VALIDATE.sentencesFromClient(sent);
+  require_(kept?.[0]?.length === 4, "texte non enregistré : une phrase bien formée doit passer");
+  require_(
+    kept?.[0][0].why?.source === "ai" && kept[0][0].why.lemma === "я" && kept[0][0].caseStatus === undefined,
+    "texte non enregistré : « relue à la main » ou l'état de vérification repris du client"
+  );
+  require_(
+    kept?.[0][0].sentenceFr === "Je vais à l'école." && kept[0][2].sentenceFr === undefined,
+    "texte non enregistré : la traduction ne tient que sur le premier mot de la phrase"
+  );
+  require_(
+    kept?.[0][1].case === undefined && kept[0][1].why === undefined && kept[0][3].why === undefined,
+    "texte non enregistré : cas inconnu ou explication vide gardés"
+  );
+  require_(
+    READ_VALIDATE.sentencesFromClient([[{ ru: "Hello" }, { ru: "my" }, { ru: "friend" }]]) === null,
+    "texte non enregistré : un texte latin passe pour du russe"
+  );
+  require_(READ_VALIDATE.sentencesFromClient([[{ gloss: "je" }]]) === null, "texte non enregistré : mot sans russe accepté");
+  require_(READ_VALIDATE.sentencesFromClient([]) === null, "texte non enregistré : texte vide accepté");
+  require_(
+    READ_VALIDATE.sentencesFromClient(Array.from({ length: 121 }, () => [{ ru: "Да." }])) === null,
+    "texte non enregistré : 121 phrases acceptées"
+  );
+
+  const explainedSentence = READ_CLIENT.withExplanation(
+    [{ ru: "Я", case: "nominative" }, { ru: "иду" }, { ru: "домой." }],
+    { translation: "Je rentre.", words: { 0: { reason: "Sujet du verbe.", source: "ai" } } }
+  );
+  require_(
+    explainedSentence[0].sentenceFr === "Je rentre." &&
+      explainedSentence[0].why?.reason === "Sujet du verbe." &&
+      explainedSentence[1].why === undefined &&
+      explainedSentence[1].sentenceFr === undefined,
+    "explication gardée : traduction sur le premier mot, explication sur son mot seulement"
   );
 }
 

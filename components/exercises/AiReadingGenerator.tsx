@@ -8,8 +8,11 @@ import Select from "@/components/ui/Select";
 import {
   annotateReadingText,
   generateReadingText,
+  saveReadingText,
   translateReadingText,
+  withExplanation,
   type GenerateReadingOptions,
+  type SentenceCases,
 } from "@/lib/reading/client";
 import {
   checkFrenchText,
@@ -94,13 +97,17 @@ function normalizeDraft(text: string): string {
  * du français est traduit à chaque pause de frappe, dans un second champ qui
  * se retouche, et c'est cette traduction qui est annotée.
  *
+ * LU SANS ÊTRE ENREGISTRÉ. Un texte à soi s'annote, se lit, se devine et
+ * s'explique sans rejoindre « Mes textes » : on colle un message pour le
+ * comprendre, pas forcément pour le garder. « Enregistrer » le garde, avec
+ * les explications déjà obtenues. Un texte généré, lui, l'est d'office.
+ *
  * LE CAS EST LA PREMIÈRE QUESTION DE LA GÉNÉRATION, PLUS UNE OPTION CACHÉE.
  * Il vivait dans le panneau « Options », sous le niveau, la longueur et la
  * forme : le réglage qui fait l'intérêt du module était le dernier qu'on
  * voyait. Il est à découvert ; le reste, qu'on règle une fois, reste replié.
  *
- * Les deux chemins partagent la suite : chargement, plafond, lecture et
- * « Mes textes ».
+ * Les deux chemins partagent la suite : chargement, plafond et lecture.
  */
 export default function AiReadingGenerator({
   onGenerated,
@@ -135,6 +142,14 @@ export default function AiReadingGenerator({
   const [translatedFrom, setTranslatedFrom] = useState<string | null>(null);
   const [translateError, setTranslateError] = useState<{ draft: string; message: string } | null>(null);
   const requestId = useRef(0);
+
+  // Ce que l'annotation rend à côté du texte, pour l'enregistrer tel quel s'il est gardé.
+  const [extras, setExtras] = useState<{ titleFr: string | null; summaryFr: string | null }>({
+    titleFr: null,
+    summaryFr: null,
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const language = detectTextLanguage(pasted);
   const writingFrench = language === "fr";
@@ -193,19 +208,27 @@ export default function AiReadingGenerator({
   }, [frenchReady, draft, translatedFrom, failedDraft]);
 
   async function run(
-    request: () => Promise<{ text: ReadingText; id: string | null }>,
+    request: () => Promise<{
+      text: ReadingText;
+      id: string | null;
+      titleFr?: string | null;
+      summaryFr?: string | null;
+    }>,
     describe: (err: unknown) => string,
   ): Promise<boolean> {
     setLoading(true);
     setError(null);
     setBlocked(null);
     setCompletedTitle(null);
+    setSaveError(null);
     try {
-      const { text: received, id } = await request();
+      const { text: received, id, titleFr, summaryFr } = await request();
       // L'id validé côté client vaut toujours "ai-generated" (placeholder) —
       // remplacé par le vrai id sauvegardé en base dès qu'on l'a : c'est lui
-      // que la fin de texte et les explications de l'IA transmettent.
+      // que la fin de texte et les explications de l'IA transmettent. Un
+      // texte collé le garde tant qu'il n'est pas enregistré.
       setText(id ? { ...received, id } : received);
+      setExtras({ titleFr: titleFr ?? null, summaryFr: summaryFr ?? null });
       if (id) onGenerated?.(id);
       return true;
     } catch (err) {
@@ -243,7 +266,7 @@ export default function AiReadingGenerator({
           ? err.message
           : "Annotation indisponible pour le moment.",
     );
-    // Le texte est enregistré dans « Mes textes » : les champs se vident pour le suivant.
+    // Le texte est à l'écran : les champs se vident pour le suivant.
     if (done) {
       setPasted("");
       setPastedTitle("");
@@ -257,6 +280,48 @@ export default function AiReadingGenerator({
     setSource(next);
     setError(null);
     setBlocked(null);
+  }
+
+  // Posée sur le texte affiché : enregistré ensuite, il garde l'explication.
+  function keepExplanation(sentenceIndex: number, explained: SentenceCases) {
+    setText(
+      (current) =>
+        current && {
+          ...current,
+          sentences: current.sentences.map((sentence, i) =>
+            i === sentenceIndex ? withExplanation(sentence, explained) : sentence,
+          ),
+        },
+    );
+  }
+
+  const saved = text !== null && text.id !== "ai-generated";
+
+  async function save() {
+    if (!text || saved || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const { id } = await saveReadingText({
+        title: text.title,
+        titleFr: extras.titleFr,
+        summaryFr: extras.summaryFr,
+        level: text.level,
+        sentences: text.sentences,
+      });
+      // L'identifiant change, pas le russe : le lecteur garde ses réponses
+      // et ses explications (voir CaseReader), et les suivantes iront en base.
+      setText((current) => current && { ...current, id });
+      onGenerated?.(id);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error && err.message !== "Erreur réseau"
+          ? err.message
+          : "L'enregistrement a échoué. Réessaie.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   const pasting = source === "paste";
@@ -603,18 +668,48 @@ export default function AiReadingGenerator({
 
       {!loading && text && (
         <div className="mt-6 animate-fade-in">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="rounded-full border border-border px-2.5 py-0.5 font-display text-xs font-semibold text-muted">
-              {text.level}
-            </span>
-            <h4 className="font-display text-xl font-bold">{text.title}</h4>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="rounded-full border border-border px-2.5 py-0.5 font-display text-xs font-semibold text-muted">
+                {text.level}
+              </span>
+              <h4 className="font-display text-xl font-bold">{text.title}</h4>
+            </div>
+            {saved ? (
+              <span className="font-display text-sm font-semibold text-accent-ink">✓ Dans « Mes textes »</span>
+            ) : (
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                className="btn btn-outline rounded-[10px] px-4 py-2 font-display text-sm font-semibold text-text disabled:opacity-60"
+              >
+                {saving ? "Enregistrement…" : "Enregistrer dans Mes textes"}
+              </button>
+            )}
           </div>
+          {!saved && (
+            <p
+              role={saveError ? "alert" : undefined}
+              className={`mb-3 font-display text-xs ${saveError ? "text-danger" : "text-muted"}`}
+            >
+              {saveError ?? "Pas enregistré : ce texte disparaît si tu en lis un autre ou quittes la page."}
+            </p>
+          )}
+          {/* Un texte enregistré se referme une fois terminé : il reste dans
+              « Mes textes ». Un texte non enregistré reste ouvert — le
+              refermer le perdrait. */}
           <CaseReader
             text={text}
-            onCompleted={() => {
-              setCompletedTitle(text.title);
-              setText(null);
-            }}
+            onExplained={keepExplanation}
+            onCompleted={
+              saved
+                ? () => {
+                    setCompletedTitle(text.title);
+                    setText(null);
+                  }
+                : undefined
+            }
           />
         </div>
       )}

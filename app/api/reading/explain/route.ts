@@ -5,7 +5,9 @@ import { getAnthropic, MODEL_FAST, textFromMessage, parseJsonResponse } from "@/
 import { consumeQuota, quotaDeniedResponse, recordTokens, refundQuota } from "@/lib/ai/quota";
 import { readingCasesPrompt } from "@/lib/ai/prompts";
 import { getReadingText, type CaseWhy, type GlossedWord } from "@/lib/reading/texts";
-import { toSentenceExplanation } from "@/lib/reading/explanation";
+import { toSentenceExplanation, type SentenceExplanation } from "@/lib/reading/explanation";
+import { sentencesFromClient } from "@/lib/reading/validate";
+import { withExplanation } from "@/lib/reading/client";
 
 /**
  * « Pourquoi ces cas ? » pour une phrase d'un texte.
@@ -15,9 +17,16 @@ import { toSentenceExplanation } from "@/lib/reading/explanation";
  * direction — et un appel par mot aurait coûté trois fiches là où une suffit.
  * Toucher le mot suivant de la même phrase ne relance donc rien.
  *
- * LE TEXTE EST RELU EN BASE, JAMAIS PRIS AU CLIENT. La route ne reçoit qu'un
- * identifiant et un numéro de phrase : elle ne sert pas de traducteur libre
- * sur le quota de l'apprenant, et ce qu'elle explique est bien ce qu'il lit.
+ * LE TEXTE EST RELU EN BASE QUAND IL Y EST. La route reçoit alors un
+ * identifiant et un numéro de phrase : ce qu'elle explique est bien ce que
+ * l'apprenant lit.
+ *
+ * SAUF UN TEXTE QUI N'A PAS ÉTÉ ENREGISTRÉ. Un texte collé se lit sans
+ * rejoindre « Mes textes », et le serveur n'en a aucune copie : la phrase
+ * arrive avec la demande. Elle passe par sentencesFromClient — forme,
+ * longueurs, cas connus, et du russe, pour que la route ne serve pas de
+ * rédacteur libre sur le quota de l'apprenant. C'est alors le navigateur qui
+ * garde l'explication, et l'enregistre avec le texte s'il est gardé.
  *
  * MISE EN CACHE DANS LE TEXTE LUI-MÊME. Chaque mot expliqué garde son
  * explication (`why`), la phrase sa traduction (`sentenceFr`, sur son
@@ -31,6 +40,67 @@ import { toSentenceExplanation } from "@/lib/reading/explanation";
  */
 export const maxDuration = 30;
 
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+type Found =
+  | {
+      sentence: GlossedWord[];
+      level: string | null;
+      /** Garde l'explication dans le texte en base — pour un texte enregistré seulement. */
+      keep?: (explanation: SentenceExplanation) => Promise<void>;
+    }
+  | { error: string; status: number };
+
+/** La phrase à expliquer : envoyée avec la demande, de la bibliothèque, ou d'un texte de l'apprenant. */
+async function findSentence(supabase: Supabase, userId: string, body: Record<string, unknown>): Promise<Found> {
+  if (Array.isArray(body.sentence)) {
+    const sentence = sentencesFromClient([body.sentence])?.[0];
+    return sentence ? { sentence, level: null } : { error: "Requête invalide", status: 400 };
+  }
+
+  const textId = typeof body.textId === "string" ? body.textId.slice(0, 100) : "";
+  const sentenceIndex = Number(body.sentenceIndex);
+  if (!textId || !Number.isInteger(sentenceIndex) || sentenceIndex < 0 || sentenceIndex > 500) {
+    return { error: "Requête invalide", status: 400 };
+  }
+
+  if (!isUuid(textId)) {
+    const library = getReadingText(textId);
+    if (!library) return { error: "Texte introuvable", status: 404 };
+    const sentence = library.sentences[sentenceIndex];
+    return Array.isArray(sentence)
+      ? { sentence, level: library.level }
+      : { error: "Phrase introuvable", status: 404 };
+  }
+
+  const { data } = await supabase
+    .from("reading_texts")
+    .select("sentences, level")
+    .eq("id", textId)
+    .eq("user_id", userId)
+    .single();
+  if (!data || !Array.isArray(data.sentences)) return { error: "Texte introuvable", status: 404 };
+  const sentences = data.sentences as GlossedWord[][];
+  const sentence = sentences[sentenceIndex];
+  if (!Array.isArray(sentence)) return { error: "Phrase introuvable", status: 404 };
+
+  return {
+    sentence,
+    level: data.level,
+    // Un échec d'écriture ne prive pas l'apprenant de l'explication qu'il
+    // vient d'obtenir : elle sera simplement redemandée la prochaine fois.
+    keep: async (explanation) => {
+      const next = sentences.map((s, i) => (i === sentenceIndex ? withExplanation(s, explanation) : s));
+      const { error } = await supabase
+        .from("reading_texts")
+        .update({ sentences: next })
+        .eq("id", textId)
+        .eq("user_id", userId);
+      if (error) console.error("reading explain: échec de la mise en cache", error);
+    },
+  };
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {
@@ -39,38 +109,9 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const textId = typeof body.textId === "string" ? body.textId.slice(0, 100) : "";
-  const sentenceIndex = Number(body.sentenceIndex);
-  if (!textId || !Number.isInteger(sentenceIndex) || sentenceIndex < 0 || sentenceIndex > 500) {
-    return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
-  }
-
-  let sentences: GlossedWord[][];
-  let textLevel: string | null = null;
-  const owned = isUuid(textId);
-  if (owned) {
-    const { data } = await supabase
-      .from("reading_texts")
-      .select("sentences, level")
-      .eq("id", textId)
-      .eq("user_id", user.id)
-      .single();
-    if (!data || !Array.isArray(data.sentences)) {
-      return NextResponse.json({ error: "Texte introuvable" }, { status: 404 });
-    }
-    sentences = data.sentences as GlossedWord[][];
-    textLevel = data.level;
-  } else {
-    const library = getReadingText(textId);
-    if (!library) return NextResponse.json({ error: "Texte introuvable" }, { status: 404 });
-    sentences = library.sentences;
-    textLevel = library.level;
-  }
-
-  const sentence = sentences[sentenceIndex];
-  if (!Array.isArray(sentence)) {
-    return NextResponse.json({ error: "Phrase introuvable" }, { status: 404 });
-  }
+  const found = await findSentence(supabase, user.id, body && typeof body === "object" ? body : {});
+  if ("error" in found) return NextResponse.json({ error: found.error }, { status: found.status });
+  const { sentence } = found;
 
   const tagged = sentence
     .map((word, index) => ({ word, index }))
@@ -109,7 +150,7 @@ export async function POST(req: Request) {
           gloss: word.gloss ?? "",
           case: word.case!,
         })),
-        level: profile?.level ?? textLevel ?? "A1",
+        level: profile?.level ?? found.level ?? "A1",
       }),
       messages: [{ role: "user", content: "Explique les cas de cette phrase." }],
     });
@@ -122,25 +163,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Explication indisponible pour le moment." }, { status: 502 });
     }
 
-    // Mise en cache dans le texte de l'apprenant. Un échec d'écriture ne le
-    // prive pas de l'explication qu'il vient d'obtenir : elle sera
-    // simplement redemandée la prochaine fois.
-    if (owned) {
-      const nextSentence = sentence.map((word, index) => {
-        const why = explanation.words[index];
-        const withWhy = why ? { ...word, why } : word;
-        return index === 0 && explanation.translation
-          ? { ...withWhy, sentenceFr: explanation.translation }
-          : withWhy;
-      });
-      const nextSentences = sentences.map((s, i) => (i === sentenceIndex ? nextSentence : s));
-      const { error: saveError } = await supabase
-        .from("reading_texts")
-        .update({ sentences: nextSentences })
-        .eq("id", textId)
-        .eq("user_id", user.id);
-      if (saveError) console.error("reading explain: échec de la mise en cache", saveError);
-    }
+    await found.keep?.(explanation);
 
     return NextResponse.json({
       cached: false,

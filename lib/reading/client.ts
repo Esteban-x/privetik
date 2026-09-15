@@ -1,4 +1,4 @@
-import type { CaseWhy, ReadingText } from "./texts";
+import type { CaseWhy, GlossedWord, ReadingText } from "./texts";
 import type { ReadingLength, ReadingStyle } from "@/lib/ai/prompts";
 import type { CaseId } from "@/lib/grammar/types";
 import type { CefrLevel } from "@/lib/supabase/types";
@@ -33,11 +33,15 @@ export function generateReadingText(
   }).then((r) => json(r));
 }
 
-/** Un texte collé par l'apprenant, annoté mot à mot — voir app/api/ai/reading/annotate. */
+/**
+ * Un texte collé par l'apprenant, annoté mot à mot — voir app/api/ai/reading/annotate.
+ * Il n'est pas enregistré : `id` vaut toujours `null`, et le titre français
+ * et le résumé reviennent à part, pour l'enregistrer tel quel s'il est gardé.
+ */
 export function annotateReadingText(input: {
   text: string;
   title?: string;
-}): Promise<{ text: ReadingText; id: string | null }> {
+}): Promise<{ text: ReadingText; id: null; titleFr: string | null; summaryFr: string | null }> {
   return fetch("/api/ai/reading/annotate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,6 +77,21 @@ export function fetchMyReadingText(id: string): Promise<{ text: ReadingText & { 
   return fetch(`/api/reading/mine/${id}`).then((r) => json(r));
 }
 
+/** Garder un texte lu sans être enregistré, explications comprises — voir POST /api/reading/mine. */
+export function saveReadingText(input: {
+  title: string;
+  titleFr: string | null;
+  summaryFr: string | null;
+  level: CefrLevel;
+  sentences: GlossedWord[][];
+}): Promise<{ id: string }> {
+  return fetch("/api/reading/mine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }).then((r) => json(r));
+}
+
 export function deleteMyReadingText(id: string): Promise<{ ok: true }> {
   return fetch(`/api/reading/mine/${id}`, { method: "DELETE" }).then((r) => json(r));
 }
@@ -92,6 +111,33 @@ export function explainSentenceCases(textId: string, sentenceIndex: number): Pro
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ textId, sentenceIndex }),
   }).then((r) => json(r));
+}
+
+/** La même demande pour un texte non enregistré : le serveur n'en a pas de copie, la phrase part avec. */
+export function explainUnsavedSentence(sentence: GlossedWord[]): Promise<SentenceCases> {
+  return fetch("/api/reading/explain", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sentence }),
+  }).then((r) => json(r));
+}
+
+/**
+ * Une phrase, son explication posée dessus : `why` sur chaque mot expliqué,
+ * la traduction sur le premier mot. C'est ainsi qu'un texte garde ses
+ * explications — en base pour un texte enregistré, à l'écran pour les autres.
+ */
+export function withExplanation(
+  sentence: GlossedWord[],
+  explained: { translation: string | null; words: Record<number, CaseWhy> }
+): GlossedWord[] {
+  return sentence.map((word, index) => {
+    const why = explained.words[index];
+    const withWhy = why ? { ...word, why } : word;
+    return index === 0 && explained.translation
+      ? { ...withWhy, sentenceFr: explained.translation }
+      : withWhy;
+  });
 }
 
 /** Enregistre la fin d'un texte, et le score du mode « Deviner les cas » s'il a été joué. */

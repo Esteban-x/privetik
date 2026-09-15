@@ -1,7 +1,8 @@
-import type { GlossedWord, ReadingText } from "./texts";
+import type { CaseWhy, GlossedWord, ReadingText } from "./texts";
 import type { CaseId } from "@/lib/grammar/types";
 import { CEFR_LEVELS, type CefrLevel } from "@/lib/supabase/types";
 import { verifyCaseTags } from "./verify-cases";
+import { detectTextLanguage } from "./manual";
 
 const CASE_IDS = new Set<CaseId>([
   "nominative",
@@ -60,4 +61,78 @@ export function toReadingText(raw: unknown, fallbackLevel: CefrLevel = "A1"): Re
     sentences: verified.sentences,
     caseCheck: verified.report,
   };
+}
+
+/** Un texte collé fait au plus 1500 caractères, un texte généré long vingt phrases : de la marge, pas un plafond qu'on frôle. */
+const CLIENT_MAX_SENTENCES = 120;
+const CLIENT_MAX_WORDS = 600;
+
+function clip(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.trim().slice(0, max) || undefined;
+}
+
+function whyFromClient(raw: unknown): CaseWhy | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const w = raw as Record<string, unknown>;
+  const reason = clip(w.reason, 400);
+  if (!reason) return undefined;
+  // Toujours « ai » : « relue à la main » ne se décerne qu'aux textes de la
+  // bibliothèque, jamais sur la foi de ce que le navigateur envoie.
+  const why: CaseWhy = { reason, source: "ai" };
+  const lemma = clip(w.lemma, 40);
+  if (lemma) why.lemma = lemma;
+  if (w.number === "singular" || w.number === "plural") why.number = w.number;
+  const trigger = clip(w.trigger, 40);
+  if (trigger) why.trigger = trigger;
+  if (typeof w.disputed === "string" && CASE_IDS.has(w.disputed as CaseId)) {
+    why.disputed = w.disputed as CaseId;
+  }
+  return why;
+}
+
+/**
+ * Des phrases renvoyées PAR LE NAVIGATEUR : celles d'un texte lu sans être
+ * enregistré, dont le serveur n'a aucune copie — pour en expliquer une, ou
+ * pour l'enregistrer.
+ *
+ * On n'en garde que la forme connue, bornée : russe, glose, cas, explication
+ * et traduction de la phrase. L'état de vérification n'est pas repris — c'est
+ * à l'appelant de repasser par verifyCaseTags. Et le texte doit être du
+ * russe : sans ce contrôle, l'explication servirait de rédacteur libre sur le
+ * quota de l'apprenant.
+ */
+export function sentencesFromClient(raw: unknown): GlossedWord[][] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > CLIENT_MAX_SENTENCES) return null;
+
+  let count = 0;
+  const sentences: GlossedWord[][] = [];
+  for (const rawSentence of raw) {
+    if (!Array.isArray(rawSentence) || rawSentence.length === 0) return null;
+    count += rawSentence.length;
+    if (count > CLIENT_MAX_WORDS) return null;
+
+    const sentence: GlossedWord[] = [];
+    for (const [index, rawWord] of rawSentence.entries()) {
+      if (!rawWord || typeof rawWord !== "object") return null;
+      const w = rawWord as Record<string, unknown>;
+      const ru = clip(w.ru, 60);
+      if (!ru) return null;
+      const word: GlossedWord = { ru };
+      const gloss = clip(w.gloss, 80);
+      if (gloss) word.gloss = gloss;
+      if (typeof w.case === "string" && CASE_IDS.has(w.case as CaseId)) {
+        word.case = w.case as CaseId;
+        const why = whyFromClient(w.why);
+        if (why) word.why = why;
+      }
+      const sentenceFr = index === 0 ? clip(w.sentenceFr, 500) : undefined;
+      if (sentenceFr) word.sentenceFr = sentenceFr;
+      sentence.push(word);
+    }
+    sentences.push(sentence);
+  }
+
+  const russian = sentences.map((s) => s.map((w) => w.ru).join(" ")).join(" ");
+  return detectTextLanguage(russian) === "ru" ? sentences : null;
 }

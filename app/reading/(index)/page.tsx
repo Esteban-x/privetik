@@ -17,7 +17,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
  * Sans « — Privetik » : le gabarit du layout l'ajoute.
  */
 export const metadata: Metadata = {
-  title: "Lire les cas : textes russes annotés et expliqués",
+  title: "Textes russes annotés et expliqués",
   description:
     "Des textes russes courts où chaque mot décliné dit son cas, et pourquoi. Touche un mot " +
     "pour l'explication ou devine les cas. Un texte complet à essayer sans compte.",
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: "/reading",
-    title: "Lire les cas : textes russes annotés et expliqués",
+    title: "Textes russes annotés et expliqués",
     description:
       "Chaque nom décliné porte la couleur de son cas et la raison de ce cas — " +
       "la préposition, le verbe ou la quantité qui l'impose.",
@@ -42,8 +42,8 @@ export const metadata: Metadata = {
  * bibliothèque. Un visiteur reçoit une démonstration plutôt qu'une
  * redirection sèche vers /login — c'est la session qui décide.
  *
- * L'ADRESSE RESTE /reading alors que le module s'appelle désormais « Lire les
- * cas » : elle est au sitemap, dans robots.txt, dans les liens des cours et
+ * L'ADRESSE RESTE /reading alors que le module s'appelle désormais « Textes »
+ * (après « Lecture », puis « Lire les cas ») : elle est au sitemap, dans robots.txt, dans les liens des cours et
  * dans les favoris. Changer le nom ne justifiait pas de casser tout ce qui y
  * mène.
  *
@@ -61,14 +61,14 @@ export default async function ReadingHub() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8 sm:py-16">
-      <SectionLabel>Падежи в тексте</SectionLabel>
+      <SectionLabel>Тексты</SectionLabel>
       <h1 className="mb-3 font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
-        Lire les cas
+        Textes
       </h1>
       <p className="mb-8 max-w-2xl font-display leading-relaxed text-muted">
-        Des textes où chaque mot décliné porte la couleur de son cas. Touche un mot&nbsp;: tu vois
-        son cas, sa forme du dictionnaire et <span className="text-text">pourquoi</span> il est à ce
-        cas. Passe en mode «&nbsp;Deviner les cas&nbsp;» pour t&apos;entraîner à les reconnaître.
+        Écris en français, colle un texte russe ou fais-en écrire un&nbsp;: chaque mot décliné porte
+        la couleur de son cas. Touche un mot&nbsp;: tu vois son cas, sa forme du dictionnaire et{" "}
+        <span className="text-text">pourquoi</span> il est à ce cas.
       </p>
 
       <ReadingGeneratorSection />

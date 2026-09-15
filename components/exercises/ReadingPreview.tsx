@@ -44,8 +44,8 @@ const FEATURES = [
   },
   {
     Icon: ListIcon,
-    title: "Tes textes restent",
-    body: "Ceux que tu fais générer sont gardés, explications comprises : rouvrir un texte ne coûte rien.",
+    title: "Tes propres textes",
+    body: "Écris en français ou colle un texte russe : il est traduit, annoté et expliqué comme les autres. Tu le gardes si tu veux, explications comprises.",
   },
 ];
 
@@ -54,7 +54,7 @@ export default function ReadingPreview() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 sm:py-14">
-      <SectionLabel>Падежи в тексте</SectionLabel>
+      <SectionLabel>Тексты</SectionLabel>
       <h1 className="mb-3 font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
         Comprendre les cas en lisant
       </h1>

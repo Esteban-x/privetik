@@ -1,5 +1,5 @@
 /**
- * Les squelettes du module « Lire les cas ».
+ * Les squelettes du module « Textes ».
  *
  * L'index et les textes avaient le même : un surtitre, un titre et cinq
  * barres dans une carte étroite — la forme d'un texte ouvert. Ouvrir l'index
@@ -54,7 +54,7 @@ export function ReadingHubSkeleton() {
           <Line className="w-28" />
         </p>
         <p className="mb-3 font-display text-3xl sm:text-4xl">
-          <Line className="w-48" />
+          <Line className="w-32" />
         </p>
         <p className="mb-8 max-w-2xl font-display leading-relaxed">
           <Line className="w-full" />

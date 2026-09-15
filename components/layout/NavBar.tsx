@@ -71,7 +71,7 @@ const MAIN: NavItem[] = [
   { href: "/cours", label: "Cours" },
   { href: "/exercices", label: "Exercices" },
   { href: "/vocabulary", label: "Vocabulaire" },
-  { href: "/reading", label: "Lire les cas" },
+  { href: "/reading", label: "Textes" },
 ];
 
 /**
@@ -109,7 +109,7 @@ const PUBLIC_NAV: NavItem[] = [
   { href: "/cours", label: "Cours" },
   { href: "/exercices", label: "Exercices" },
   { href: "/vocabulary", label: "Vocabulaire" },
-  { href: "/reading", label: "Lire les cas" },
+  { href: "/reading", label: "Textes" },
   { href: "/premium", label: "Tarifs" },
 ];
 

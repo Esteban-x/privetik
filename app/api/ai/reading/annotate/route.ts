@@ -16,7 +16,12 @@ import { READING_LEVELS, type CefrLevel } from "@/lib/supabase/types";
 
 /**
  * Annoter un texte que l'apprenant a collé : chaque mot reçoit sa glose et
- * son cas, puis le texte rejoint « Mes textes » comme un texte généré.
+ * son cas.
+ *
+ * RIEN N'EST ENREGISTRÉ. On colle un message pour le comprendre, pas pour le
+ * garder : le texte se lit, se devine et s'explique sans rejoindre « Mes
+ * textes ». S'il est gardé, c'est POST /api/reading/mine qui l'enregistre —
+ * d'où le titre français et le résumé renvoyés à part.
  *
  * DÉCOMPTÉ COMME UN TEXTE GÉNÉRÉ, sur le poste `reading`. C'est la même
  * dépense et le même usage ; un poste à part aurait ouvert un second plafond
@@ -112,21 +117,12 @@ export async function POST(req: Request) {
       caseCheck: verified.report,
     };
 
-    const { data: saved, error: saveError } = await supabase
-      .from("reading_texts")
-      .insert({
-        user_id: user.id,
-        title: text.title,
-        title_fr: givenTitleFr || str(raw.title_fr),
-        level: text.level,
-        sentences: text.sentences,
-        summary_fr: str(raw.summary_fr),
-      })
-      .select("id")
-      .single();
-    if (saveError) console.error("reading annotate: échec sauvegarde", saveError);
-
-    return NextResponse.json({ text, id: saved?.id ?? null });
+    return NextResponse.json({
+      text,
+      id: null,
+      titleFr: givenTitleFr || str(raw.title_fr),
+      summaryFr: str(raw.summary_fr),
+    });
   } catch (err) {
     console.error("reading annotate route error", err);
     await refundQuota(supabase, "reading");

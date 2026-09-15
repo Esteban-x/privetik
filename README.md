@@ -416,12 +416,22 @@ licence **Creative Commons Attribution-ShareAlike 4.0**. Les données dérivées
 présentes dans `lib/grammar/nouns-data.generated.ts` restent sous cette
 licence : si l'app est distribuée, l'attribution doit être visible.
 
-## Lire les cas
+## Textes
 
 L'ancien module « Lecture » traduisait un mot au clic et colorait les noms
 selon leur cas. On voyait QUE « шко́ле » était au prépositionnel, jamais
 POURQUOI. Le module (toujours servi sur `/reading`, pour ne casser ni le
-sitemap ni les liens) est désormais bâti autour de cette question.
+sitemap ni les liens) est désormais bâti autour de cette question. Il s'est
+appelé « Lire les cas », puis « Textes » quand on a pu y lire les siens.
+
+- **Mon texte** : écrit en français — traduit en russe à chaque pause de
+  frappe (`app/api/ai/reading/translate`, poste `suggest`), dans un champ qui
+  se retouche — ou collé en russe, puis annoté mot à mot
+  (`app/api/ai/reading/annotate`, poste `reading`). Il se lit, se devine et
+  s'explique **sans être enregistré** ; « Enregistrer dans Mes textes » le
+  garde, explications comprises (`POST /api/reading/mine`).
+- **Générer un texte** : écrit par l'IA à son niveau, autour d'un cas choisi,
+  et enregistré d'office.
 
 - **Lire** : chaque mot décliné porte la couleur de son cas ; le toucher ouvre
   son analyse — cas, nombre, forme du dictionnaire, raison du cas, traduction
@@ -452,6 +462,9 @@ et l'écran dit toujours laquelle il montre :
    déclencheur inventé retiré, désaccord avec le cas annoncé mis à part. Elle
    est ensuite **gardée dans le texte** (`why` sur chaque mot, `sentenceFr` sur
    le premier), sans table supplémentaire : rouvrir le texte n'appelle plus rien.
+   Un texte non enregistré envoie sa phrase avec la demande
+   (`sentencesFromClient`, dans `lib/reading/validate.ts`) ; l'explication reste
+   alors à l'écran, et suit le texte s'il est enregistré.
 
 ## Le test de placement
 
