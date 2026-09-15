@@ -1384,6 +1384,53 @@ button:disabled,
   }
 }
 
+/* ── La vitrine de l'accueil (components/marketing/FeatureShowcase) ──
+ *
+ * La barre de l'onglet actif FAIT le défilement : la diapositive change à la
+ * fin de son animation. Sa durée est donc le temps d'une diapositive, et la
+ * pause (survol, focus, bouton) n'a qu'à la geler. Sans animation — réduction
+ * des mouvements — rien ne défile tout seul. */
+@keyframes showcaseProgress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.showcase-progress {
+  transform-origin: left;
+  animation: showcaseProgress 6.5s linear forwards;
+}
+
+.showcase-paused .showcase-progress {
+  animation-play-state: paused;
+}
+
+/* L'onde du haut-parleur, sur la diapositive de la voix. */
+@keyframes showcaseBar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.showcase-bar {
+  transform-origin: bottom;
+  animation: showcaseBar 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase-progress,
+  .showcase-bar {
+    animation: none;
+  }
+}
+
 /* ── L'abonnement : le tricolore comme signe distinctif ──────────
  *
  * Une seule règle porte l'identité Pro, réutilisée par le bouton de la

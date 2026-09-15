@@ -5,6 +5,7 @@ import Spotlight from "@/components/ui/Spotlight";
 
 import PricingCta from "@/components/marketing/PricingCta";
 import { CrownIcon } from "@/components/ui/CrownIcon";
+import { PRICE_EUR, PRICE_LABEL, PRICE_PER_DAY } from "@/lib/billing/price";
 import { ArrowRightIcon, CheckIcon, CrossIcon } from "@/components/ui/icons";
 import { resolvePlan } from "@/lib/billing/plans";
 import { fetchFreeCaps } from "@/lib/billing/free-caps";
@@ -70,16 +71,8 @@ export const metadata: Metadata = {
  * de payer.
  */
 
-const PRICE_EUR = 16.99;
-
-const eur = (n: number) =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(n);
-
-const PRICE = eur(PRICE_EUR);
-/** Ramené au jour, le prix se compare à une dépense quotidienne banale — la
- *  seule échelle où « 17 € » cesse d'être un palier psychologique. Calculé,
- *  jamais écrit en dur : le jour où le tarif bouge, cette ligne suit. */
-const PER_DAY = eur(Math.round((PRICE_EUR * 12 * 100) / 365) / 100);
+const PRICE = PRICE_LABEL;
+const PER_DAY = PRICE_PER_DAY;
 
 /**
  * Les rubriques d'une fiche de mot.
