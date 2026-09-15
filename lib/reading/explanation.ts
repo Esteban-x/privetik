@@ -43,6 +43,33 @@ function text(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, max) : "";
 }
 
+/**
+ * Une réponse coupée par le plafond de sortie : on garde les explications
+ * arrivées ENTIÈRES, plutôt que de jeter la phrase.
+ *
+ * Le JSON s'arrête au milieu d'un mot. On le referme juste après la
+ * dernière accolade — celle du dernier mot complet — et on relit ; si cette
+ * accolade fermait déjà tout l'objet, le texte se relit tel quel. Si la
+ * coupure tombe avant la liste des mots, ou au milieu d'une chaîne qui
+ * contient elle-même une accolade, la relecture échoue et on renvoie
+ * `null` : l'appelant traite alors la réponse comme illisible.
+ */
+export function salvageTruncated(text: string): unknown | null {
+  const start = text.indexOf("{");
+  const words = text.indexOf('"words"', start);
+  const lastClose = text.lastIndexOf("}");
+  if (start === -1 || words === -1 || lastClose <= words) return null;
+  const head = text.slice(start, lastClose + 1);
+  for (const candidate of [`${head}]}`, head]) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // fermeture suivante
+    }
+  }
+  return null;
+}
+
 export function toSentenceExplanation(
   raw: unknown,
   sentence: GlossedWord[]

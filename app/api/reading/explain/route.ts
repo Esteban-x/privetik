@@ -5,7 +5,11 @@ import { getAnthropic, MODEL_FAST, textFromMessage, parseJsonResponse } from "@/
 import { consumeQuota, quotaDeniedResponse, recordTokens, refundQuota } from "@/lib/ai/quota";
 import { readingCasesPrompt } from "@/lib/ai/prompts";
 import { getReadingText, type CaseWhy, type GlossedWord } from "@/lib/reading/texts";
-import { toSentenceExplanation, type SentenceExplanation } from "@/lib/reading/explanation";
+import {
+  salvageTruncated,
+  toSentenceExplanation,
+  type SentenceExplanation,
+} from "@/lib/reading/explanation";
 import { sentencesFromClient } from "@/lib/reading/validate";
 import { withExplanation } from "@/lib/reading/client";
 
@@ -38,7 +42,22 @@ import { withExplanation } from "@/lib/reading/client";
  * Décompté sur le poste `explain`, celui des fiches de mots : c'est la même
  * nature de dépense, et le même plafond pour l'apprenant.
  */
-export const maxDuration = 30;
+export const maxDuration = 60;
+
+/**
+ * LE PLAFOND DE SORTIE SUIT LE NOMBRE DE MOTS À EXPLIQUER.
+ *
+ * Il valait 1 400 jetons pour toute phrase. Mesuré sur une phrase de presse
+ * collée par un apprenant — 26 mots, 15 déclinés — la réponse en demande
+ * 1 463 : elle était coupée au plafond, le JSON devenait illisible, et
+ * l'écran disait « Explication indisponible » à chaque essai, après avoir
+ * attendu le modèle jusqu'au bout. Environ cent jetons par mot : on en
+ * prévoit cent quarante, plus la traduction. Le plafond ne coûte rien —
+ * seuls les jetons réellement écrits sont facturés.
+ */
+function outputBudget(words: number): number {
+  return Math.min(6000, 400 + words * 140);
+}
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -139,9 +158,10 @@ export async function POST(req: Request) {
     .single();
 
   try {
+    const maxTokens = outputBudget(tagged.length);
     const msg = await getAnthropic().messages.create({
       model: MODEL_FAST,
-      max_tokens: 1400,
+      max_tokens: maxTokens,
       system: readingCasesPrompt({
         sentence: sentence.map((w) => w.ru).join(" "),
         words: tagged.map(({ word, index }) => ({
@@ -156,7 +176,20 @@ export async function POST(req: Request) {
     });
     await recordTokens(supabase, "explain", msg.usage);
 
-    const explanation = toSentenceExplanation(parseJsonResponse(textFromMessage(msg)), sentence);
+    const text = textFromMessage(msg);
+    const truncated = msg.stop_reason === "max_tokens";
+    if (truncated) {
+      console.error(`reading explain: réponse tronquée à ${maxTokens} jetons (${tagged.length} mots)`);
+    }
+    let raw: unknown;
+    try {
+      raw = parseJsonResponse(text);
+    } catch (err) {
+      // Coupée malgré le plafond : les mots arrivés entiers valent mieux que rien.
+      if (!truncated) throw err;
+      raw = salvageTruncated(text);
+    }
+    const explanation = toSentenceExplanation(raw, sentence);
     if (!explanation) {
       console.error("reading explain: forme inattendue");
       await refundQuota(supabase, "explain");

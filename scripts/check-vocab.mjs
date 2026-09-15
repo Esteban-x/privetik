@@ -847,6 +847,20 @@ for (const text of T.READING_TEXTS) {
   require_(X.toSentenceExplanation({}, sentence) === null, "explication IA : une réponse vide doit être refusée");
   require_(X.toSentenceExplanation("texte", sentence) === null, "explication IA : une réponse non-objet doit être refusée");
 
+  // Une réponse coupée par le plafond de sortie : les mots arrivés entiers sont gardés.
+  const complete = `{"translation":"Je vais à l'école.","words":[{"index":0,"lemma":"я","case":"nominative","number":"singular","trigger":"","reason":"« Я » est le sujet du verbe « иду », donc au nominatif."},{"index":3,"lemma":"школа","case":"accusative","number":"singular","trigger":"в","reason":"Avec un verbe de mouvement, « в » est suivi de l'accusatif : il indique la direction."}]}`;
+  const cut = complete.slice(0, complete.indexOf('"trigger":"в"') + 10);
+  const salvaged = X.toSentenceExplanation(X.salvageTruncated(cut), sentence);
+  require_(
+    salvaged?.words[0]?.lemma === "я" && !salvaged.words[3] && salvaged.translation === "Je vais à l'école.",
+    `explication IA : une réponse coupée doit garder les mots complets et eux seuls (${JSON.stringify(salvaged)})`
+  );
+  require_(X.salvageTruncated(`{"translation":"Je vais à l'éc`) === null, "explication IA : une réponse coupée avant les mots ne se récupère pas");
+  require_(
+    JSON.stringify(X.toSentenceExplanation(X.salvageTruncated(complete.slice(0, -2) + "]}"), sentence)?.words[3]?.lemma) === '"школа"',
+    "explication IA : une réponse entière relue par le rattrapage doit rester entière"
+  );
+
   // Le prompt porte bien la phrase et chaque mot à expliquer, avec sa position.
   const prompt = P.readingCasesPrompt({
     sentence: "Я иду в школу.",
